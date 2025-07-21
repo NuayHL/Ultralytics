@@ -15,6 +15,88 @@ from .metrics import bbox_iou, probiou
 from .tal import bbox2dist
 
 
+class HardnessEnhancedFocalLoss(nn.Module):
+    """Advanced Focal Loss with additional modulation parameters.
+
+    loss = -[wd + lambda*(1-pt)**gamma] * log(pt)
+    where:
+        wd = 1.0/(1 + phi*exp(-beta*(1-pt)))
+        lambda = alpha*(1 - phi*pt)**r
+
+    Args:
+        alpha: Class balancing base weight (float)
+        gamma: Base focal exponent (float)
+        beta: WD function steepness parameter (float)
+        r: Lambda function exponent (float)
+        phi: Shared modulation parameter (float)
+        reduction: Loss reduction method ('none', 'mean', or 'sum')
+    """
+
+    def __init__(self, alpha=0.25, gamma=2.0, beta=4.0, r=2.0, phi=0.5, reduction=None):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.beta = beta
+        self.r = r
+        self.phi = phi
+        self.reduction = reduction
+
+    def forward(self, pred, target):
+        """Compute advanced focal loss.
+
+        Args:
+            pred: Model predictions (logits) of shape (N, *)
+            target: Ground truth labels (same shape as pred) in [0,1]
+
+        Returns:
+            Loss tensor (reduced according to self.reduction)
+        """
+        # Basic input validation
+        # if pred.shape != target.shape:
+        #     raise ValueError(f"Shape mismatch: pred {pred.shape}, target {target.shape}")
+
+        # Compute probability and clip to avoid numerical instability
+        pred_prob = torch.sigmoid(pred)
+        pt = torch.where(target == 1, pred_prob, 1 - pred_prob)
+        pt = torch.clamp(pt, 1e-7, 1 - 1e-7)  # Avoid log(0) and division issues
+
+        # Compute binary cross entropy (log part of loss)
+        bce_loss = F.binary_cross_entropy_with_logits(
+            pred, target, reduction='none'
+        )
+
+        # ===== Compute WD term =====
+        # wd = 1.0/(1 + phi*exp(-beta*(1-pt)))
+        exp_term = torch.exp(-self.beta * (1 - pt))
+        wd_denominator = 1 + self.phi * exp_term
+        wd = 1.0 / wd_denominator
+
+        # ===== Compute Lambda term =====
+        # lambda = alpha*(1 - phi*pt)**r
+        lambda_base = 1 - self.phi * pt
+        lambda_term = self.alpha * torch.pow(lambda_base, self.r)
+
+        # ===== Compute focal modulation term =====
+        focal_modulation = torch.pow(1 - pt, self.gamma)
+
+        # ===== Combine all components =====
+        # loss = [wd + lambda_term * focal_modulation] * bce_loss
+        loss = (wd + lambda_term * focal_modulation) * bce_loss
+
+        # Apply reduction
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        return loss
+
+    def extra_repr(self):
+        """Display parameters when printing class"""
+        return (f"alpha={self.alpha}, gamma={self.gamma}, beta={self.beta}, "
+                f"r={self.r}, phi={self.phi}, reduction={self.reduction}")
+
+
+
 class VarifocalLoss(nn.Module):
     """
     Varifocal loss by Zhang et al.
@@ -190,11 +272,12 @@ class KeypointLoss(nn.Module):
         e = d / ((2 * self.sigmas).pow(2) * (area + 1e-9) * 2)  # from cocoeval
         return (kpt_loss_factor.view(-1, 1) * ((1 - torch.exp(-e)) * kpt_mask)).mean()
 
+from .tal import get_task_aligned_assigner
 
 class v8DetectionLoss:
     """Criterion class for computing training losses for YOLOv8 object detection."""
 
-    def __init__(self, model, tal_topk: int = 10):  # model must be de-paralleled
+    def __init__(self, model, cfg: dict, tal_topk: int = 10):  # model must be de-paralleled
         """Initialize v8DetectionLoss with model parameters and task-aligned assignment settings."""
         device = next(model.parameters()).device  # get model device
         h = model.args  # hyperparameters
@@ -210,7 +293,8 @@ class v8DetectionLoss:
 
         self.use_dfl = m.reg_max > 1
 
-        self.assigner = TaskAlignedAssigner(topk=tal_topk, num_classes=self.nc, alpha=0.5, beta=6.0)
+        self.assigner = get_task_aligned_assigner(cfg=cfg, nc=self.nc)
+        # self.assigner = TaskAlignedAssigner(topk=tal_topk, num_classes=self.nc, alpha=0.5, beta=6.0)
         self.bbox_loss = BboxLoss(m.reg_max).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 

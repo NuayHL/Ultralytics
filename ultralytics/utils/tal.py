@@ -3,12 +3,26 @@
 import torch
 import torch.nn as nn
 
-from . import LOGGER
+from . import LOGGER, colorstr
 from .checks import check_version
 from .metrics import bbox_iou, probiou
 from .ops import xywhr2xyxyxyxy
 
 TORCH_1_10 = check_version(torch.__version__, "1.10.0")
+
+
+def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
+    assigner_type = cfg.get("assigner_type", "TaskAlignedAssigner")
+    if assigner_type == "TaskAlignedAssigner":
+        _kwargs = dict(topk = cfg.get("topk", 10),
+                     num_classes = nc,
+                     alpha = cfg.get("alpha", 0.5),
+                     beta = cfg.get("beta", 6.0))
+
+        LOGGER.info(f"\r{colorstr('Using '+assigner_type)}: {_kwargs}")
+        return TaskAlignedAssigner(**_kwargs)
+    else:
+        raise ValueError(f"Unknown assigner type: {assigner_type}")
 
 
 class TaskAlignedAssigner(nn.Module):
