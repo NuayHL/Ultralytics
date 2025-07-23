@@ -846,6 +846,7 @@ def entrypoint(debug: str = "") -> None:
         - For a list of all available commands and their arguments, see the provided help messages and the
           Ultralytics documentation at https://docs.ultralytics.com.
     """
+    LOGGER.info('Using Haoyuan\'s Ultralytics Setting')
     args = (debug.split(" ") if debug else ARGV)[1:]
     if not args:  # no arguments passed
         LOGGER.info(CLI_HELP_MSG)
