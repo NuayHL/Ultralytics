@@ -7,6 +7,7 @@ from typing import List
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 __all__ = (
     "Conv",
@@ -23,6 +24,10 @@ __all__ = (
     "Concat",
     "RepConv",
     "Index",
+
+    "ChannelBiasBlock",
+    "CABlock",
+    "SEBlock"
 )
 
 
@@ -681,6 +686,49 @@ class Concat(nn.Module):
         """
         return torch.cat(x, self.d)
 
+# Scripts Begin
+class ChannelBiasBlock(nn.Module):
+    def __init__(self, in_channels, squeeze_rate=20):
+        super(ChannelBiasBlock, self).__init__()
+        bias_channels = max(int(in_channels/squeeze_rate), 5)
+        self.excitation = nn.Sequential(
+            nn.Conv2d(in_channels, bias_channels, kernel_size=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(bias_channels, in_channels, kernel_size=1)
+        )
+
+    def forward(self, x):
+        _,_,h,w = x.shape
+        pooled = F.adaptive_avg_pool2d(x, output_size=1)
+        bias_up = self.excitation(pooled)
+        return x + bias_up
+
+class CABlock(nn.Module):
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Conv2d(channels, channels, 1, 1, 0, bias=True)
+        self.act = nn.Sigmoid()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * self.act(self.fc(self.pool(x)))
+
+class SEBlock(nn.Module):
+    def __init__(self, channels: int, reduction: int = 16):
+        super(SEBlock, self).__init__()
+        squeeze_channels = max(channels // reduction, 4)
+
+        self.excitation = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(channels, squeeze_channels, kernel_size=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(squeeze_channels, channels, kernel_size=1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        attention_weights = self.excitation(x)
+        return x * attention_weights
 
 class Index(nn.Module):
     """
