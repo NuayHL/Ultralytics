@@ -78,7 +78,9 @@ from .conv import (
 
     ChannelBiasBlock,
     CABlock,
-    SEBlock
+    SEBlock,
+    ConvBase,
+    CBConvBlock
 )
 from .head import (
     OBB,
@@ -186,5 +188,7 @@ __all__ = (
 
     "CABlock",
     "SEBlock",
-    "ChannelBiasBlock"
+    "ChannelBiasBlock",
+    "CBConvBlock",
+    "ConvBase"
 )

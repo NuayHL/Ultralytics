@@ -3,27 +3,12 @@
 import torch
 import torch.nn as nn
 
-from . import LOGGER, colorstr
+from . import LOGGER
 from .checks import check_version
 from .metrics import bbox_iou, probiou
 from .ops import xywhr2xyxyxyxy
 
 TORCH_1_10 = check_version(torch.__version__, "1.10.0")
-
-
-def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
-    assigner_type = cfg.get("assigner_type", "TaskAlignedAssigner")
-    if assigner_type == "TaskAlignedAssigner":
-        _kwargs = dict(topk = cfg.get("topk", 10),
-                     num_classes = nc,
-                     alpha = cfg.get("alpha", 0.5),
-                     beta = cfg.get("beta", 6.0))
-
-        LOGGER.info(f"\r{colorstr('Using '+assigner_type)}: {_kwargs}")
-        return TaskAlignedAssigner(**_kwargs)
-    else:
-        raise ValueError(f"Unknown assigner type: {assigner_type}")
-
 
 class TaskAlignedAssigner(nn.Module):
     """
@@ -122,16 +107,32 @@ class TaskAlignedAssigner(nn.Module):
             fg_mask (torch.Tensor): Foreground mask with shape (bs, num_total_anchors).
             target_gt_idx (torch.Tensor): Target ground truth indices with shape (bs, num_total_anchors).
         """
+        """
+        mask_pos: (b, max_num_obj, h*w) boolean tensor indicating the positive (foreground) anchor points.
+        align_metric: (b, max_num_obj, h*w) alignment metric for positive anchor points.
+        overlaps: (b, max_num_obj, h*w) IoU_based overlaps between predicted and ground truth boxes for positive anchor points.
+        """
         mask_pos, align_metric, overlaps = self.get_pos_mask(
             pd_scores, pd_bboxes, gt_labels, gt_bboxes, anc_points, mask_gt
         )
 
+        # dealing with more than one assigned anchor,
+        """
+        target_gt_idx : (b, h*w) indicator of the assigned ground truth object for positive anchor points, with shape (b, h*w)
+        fg_mask : (b, h*w) boolean tensor indicating the positive (foreground) anchor points.
+        mask_pos : (b, max_num_obj, h*w) boolean tensor indicating the positive (foreground) anchor points.
+        """
         target_gt_idx, fg_mask, mask_pos = self.select_highest_overlaps(mask_pos, overlaps, self.n_max_boxes)
 
         # Assigned target
+        """
+        target_labels : (b, h*w) target labels for positive anchor points, with shape (b, h*w).
+        target_bboxes : (b, h*w, 4) target bounding boxes for positive anchor points, with shape (b, h*w, 4).
+        target_scores : (b, h*w, num_classes) target scores for positive anchor points, with shape (b, h*w, num_classes).
+        """
         target_labels, target_bboxes, target_scores = self.get_targets(gt_labels, gt_bboxes, target_gt_idx, fg_mask)
 
-        # Normalize
+        # Normalize: max score assigned with max overlap score, rest using propotions with the max score.
         align_metric *= mask_pos
         pos_align_metrics = align_metric.amax(dim=-1, keepdim=True)  # b, max_num_obj
         pos_overlaps = (overlaps * mask_pos).amax(dim=-1, keepdim=True)  # b, max_num_obj
@@ -190,7 +191,7 @@ class TaskAlignedAssigner(nn.Module):
         ind = torch.zeros([2, self.bs, self.n_max_boxes], dtype=torch.long)  # 2, b, max_num_obj
         ind[0] = torch.arange(end=self.bs).view(-1, 1).expand(-1, self.n_max_boxes)  # b, max_num_obj
         ind[1] = gt_labels.squeeze(-1)  # b, max_num_obj
-        # Get the scores of each grid for each gt cls
+        # Get the scores of each grid for each gt cls (only for gt's cls)
         bbox_scores[mask_gt] = pd_scores[ind[0], :, ind[1]][mask_gt]  # b, max_num_obj, h*w
 
         # (b, max_num_obj, 1, 4), (b, 1, h*w, 4)
@@ -241,7 +242,7 @@ class TaskAlignedAssigner(nn.Module):
         for k in range(self.topk):
             # Expand topk_idxs for each value of k and add 1 at the specified positions
             count_tensor.scatter_add_(-1, topk_idxs[:, :, k : k + 1], ones)
-        # Filter invalid bboxes
+        # Filter invalid bboxes (due to the unstable behavior of topk)
         count_tensor.masked_fill_(count_tensor > 1, 0)
 
         return count_tensor.to(metrics.dtype)

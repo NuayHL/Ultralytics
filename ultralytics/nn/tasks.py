@@ -71,7 +71,9 @@ from ultralytics.nn.modules import (
 
     ChannelBiasBlock,
     CABlock,
-    SEBlock
+    SEBlock,
+    CBConvBlock,
+    ConvBase
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, YAML, colorstr, emojis
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -1738,7 +1740,7 @@ def parse_model(d, ch, verbose=True):
             c2 = args[0]
             c1 = ch[f]
             args = [*args[1:]]
-        elif m in frozenset({ChannelBiasBlock, CABlock, SEBlock}):
+        elif m in frozenset({ChannelBiasBlock, CABlock, SEBlock, CBConvBlock, ConvBase}):
             c1 = ch[f]
             c2 = ch[f]
             args = [c1, *args[1:]] if args[1:] else [c1]

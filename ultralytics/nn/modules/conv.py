@@ -27,7 +27,9 @@ __all__ = (
 
     "ChannelBiasBlock",
     "CABlock",
-    "SEBlock"
+    "SEBlock",
+    "CBConvBlock",
+    "ConvBase"
 )
 
 
@@ -702,6 +704,31 @@ class ChannelBiasBlock(nn.Module):
         pooled = F.adaptive_avg_pool2d(x, output_size=1)
         bias_up = self.excitation(pooled)
         return x + bias_up
+
+class CBConvBlock(nn.Module):
+    def __init__(self, in_channels, bias_channels=3):
+        super().__init__()
+        self.in_channels = in_channels
+        self.bias_channels = bias_channels
+        self.channel_conv = nn.Conv2d(in_channels, bias_channels, kernel_size=1)
+        self.restore_conv = nn.Conv2d(in_channels + bias_channels, in_channels, kernel_size=1)
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        pooled = F.adaptive_avg_pool2d(x, output_size=1)
+        bias = self.channel_conv(pooled)
+        bias_up = bias.expand(-1, -1, H, W)
+        fused = torch.cat([x, bias_up], dim=1)
+        out = self.restore_conv(fused)
+        return out
+
+class ConvBase(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        self.channel_conv = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+
+    def forward(self, x):
+        return self.channel_conv(x)
 
 class CABlock(nn.Module):
     def __init__(self, channels: int) -> None:

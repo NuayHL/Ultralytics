@@ -10,6 +10,7 @@ from ultralytics.utils.metrics import OKS_SIGMA
 from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
 from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigner, dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import autocast
+from .assignment import get_task_aligned_assigner
 
 from .metrics import bbox_iou, probiou
 from .tal import bbox2dist
@@ -272,7 +273,6 @@ class KeypointLoss(nn.Module):
         e = d / ((2 * self.sigmas).pow(2) * (area + 1e-9) * 2)  # from cocoeval
         return (kpt_loss_factor.view(-1, 1) * ((1 - torch.exp(-e)) * kpt_mask)).mean()
 
-from .tal import get_task_aligned_assigner
 
 class v8DetectionLoss:
     """Criterion class for computing training losses for YOLOv8 object detection."""
