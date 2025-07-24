@@ -2,7 +2,7 @@ echo 'Starts!'
 echo 'yolov12s_assign_record'
 yolo detect train \
     data=ultralytics/cfg/datasets/VisDrone.yaml \
-    model=mycfg/yolo12s_assign_visdrone.yaml \
+    model=cfg/yolo12s_assign_visdrone.yaml \
     epochs=150 \
     batch=16 \
     imgsz=640 \
