@@ -8,7 +8,7 @@ yolo detect train \
     imgsz=640 \
     device=0 \
     save=True \
-    name=visdrone/v12s > terminal_log/yolov12.log 2>&1
+    name=visdrone/v12s > terminal_log/yolo12s_vis.log 2>&1
 
 echo 'yolov11s'
 yolo detect train \
@@ -19,7 +19,7 @@ yolo detect train \
     imgsz=640 \
     device=0 \
     save=True \
-    name=visdrone/v11s > terminal_log/yolov11.log 2>&1
+    name=visdrone/v11s > terminal_log/yolo11s_vis.log 2>&1
 
 echo 'yolov8s'
 yolo detect train \
@@ -30,4 +30,4 @@ yolo detect train \
     imgsz=640 \
     device=0 \
     save=True \
-    name=visdrone/v8s > terminal_log/yolov8.log 2>&1
+    name=visdrone/v8s > terminal_log/yolov8s_vis.log 2>&1
