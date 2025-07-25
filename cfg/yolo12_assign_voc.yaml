@@ -8,7 +8,7 @@
 assigner_type: 'TaskAlignedAssigner_Record'
 topk: 10
 alpha: 0.5
-beta: 7.0
+beta: 6.0
 dir_name: voc
 save_step: 10
 
