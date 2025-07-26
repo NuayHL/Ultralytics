@@ -1,5 +1,5 @@
 from ultralytics.utils import LOGGER, colorstr
-from ultralytics.utils.mla import TaskAlignedAssigner_Record
+from ultralytics.utils.mla import TaskAlignedAssigner_Record, TaskAlignedAssigner_BCE
 from ultralytics.utils.tal import TaskAlignedAssigner
 
 
@@ -13,6 +13,14 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
 
         LOGGER.info(f"\r{colorstr('Using '+assigner_type)}: {_kwargs}")
         return TaskAlignedAssigner(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_BCE":
+        _kwargs = dict(topk = cfg.get("topk", 10),
+                     num_classes = nc,
+                     alpha = cfg.get("alpha", 0.5),
+                     beta = cfg.get("beta", 6.0))
+
+        LOGGER.info(f"\r{colorstr('Using '+assigner_type)}: {_kwargs}")
+        return TaskAlignedAssigner_BCE(**_kwargs)
     elif assigner_type == "TaskAlignedAssigner_Record":
         _kwargs = dict(topk=cfg.get("topk", 10),
                        num_classes=nc,

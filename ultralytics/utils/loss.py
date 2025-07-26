@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from ultralytics.utils.metrics import OKS_SIGMA
 from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
 from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigner, dist2bbox, dist2rbox, make_anchors
+from ultralytics.utils.mla import TaskAlignedAssigner_BCE
 from ultralytics.utils.torch_utils import autocast
 from .assignment import get_task_aligned_assigner
 
@@ -294,6 +295,7 @@ class v8DetectionLoss:
         self.use_dfl = m.reg_max > 1
 
         self.assigner = get_task_aligned_assigner(cfg=cfg, nc=self.nc)
+        self.assigner_sigmoid_input = not isinstance(self.assigner, TaskAlignedAssigner_BCE)
         # self.assigner = TaskAlignedAssigner(topk=tal_topk, num_classes=self.nc, alpha=0.5, beta=6.0)
         self.bbox_loss = BboxLoss(m.reg_max).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
@@ -353,7 +355,7 @@ class v8DetectionLoss:
 
         _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
             # pred_scores.detach().sigmoid() * 0.8 + dfl_conf.unsqueeze(-1) * 0.2,
-            pred_scores.detach().sigmoid(),
+            pred_scores.detach().sigmoid() if self.assigner_sigmoid_input else pred_scores.detach(), # fixed here
             (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
             anchor_points * stride_tensor,
             gt_labels,
