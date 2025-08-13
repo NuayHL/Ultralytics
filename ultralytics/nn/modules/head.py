@@ -3,6 +3,7 @@
 
 import copy
 import math
+import random
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -12,6 +13,7 @@ from torch.nn.init import constant_, xavier_uniform_
 
 from ultralytics.utils.tal import TORCH_1_10, dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import fuse_conv_and_bn, smart_inference_mode
+from ultralytics.utils import LOGGER, colorstr
 
 from .block import DFL, SAVPE, BNContrastiveHead, ContrastiveHead, Proto, Residual, SwiGLUFFN
 from .conv import Conv, DWConv
@@ -224,6 +226,120 @@ class Detect(nn.Module):
         scores, index = scores.flatten(1).topk(min(max_det, anchors))
         i = torch.arange(batch_size)[..., None]  # batch indices
         return torch.cat([boxes[i, index // nc], scores[..., None], (index % nc)[..., None].float()], dim=-1)
+
+class DetectPermute(Detect):
+    def __init__(self, nc: int = 80, ch: Tuple = (),
+                 permute_mode: str = "random", perm_strength: float = 1.0, perm_seed: int = 42,):
+        super().__init__(nc=nc, ch=ch)
+        self.perm = None
+        self.perm_mode = permute_mode
+        self.perm_strength = perm_strength
+        self.perm_seed = perm_seed
+        LOGGER.info(f"DetectPermute: {self.perm_mode}, {self.perm_strength}, {self.perm_seed}")
+
+    def forward(self, x: List[torch.Tensor]) -> Union[List[torch.Tensor], Tuple]:
+        """Concatenate and return predicted bounding boxes and class probabilities."""
+        if self.end2end:
+            raise ValueError('No end2end support in DetectPermute')
+
+        for i in range(self.nl):
+            x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
+        if x[0].shape[2] == 80: # only begin perm when training begins
+            if self.perm is None:
+                self.perm = [self.get_permute(x_, mode=self.perm_mode,
+                                              strength=self.perm_strength,
+                                              seed=int(self.perm_seed + x_.shape[2]))
+                             for x_ in x]
+            B, C, _, _ = x[0].shape
+            x = [x_.view(B, C, -1)[:, :, perm_].view(B, C, x_.shape[2], x_.shape[2]).contiguous()
+                 for x_, perm_ in zip(x, self.perm)]
+        if self.training:  # Training path
+            return x
+        y = self._inference(x)
+        return y if self.export else (y, x)
+
+    @staticmethod
+    def get_permute(tensor, mode="random", strength=1.0, seed=42):
+        B, C, H, W = tensor.shape
+        N = H * W
+        device = tensor.device
+        rng = random.Random(seed)
+
+        if mode == "none":
+            perm = torch.arange(N, device=device, dtype=torch.long)
+        elif mode == "shift":
+            shift_amount = int(strength) % N
+            perm = torch.roll(torch.arange(N, device=device, dtype=torch.long),
+                              shifts=shift_amount)
+        elif mode == "halfshift":
+            shift_amount = int(N/2)
+            perm = torch.roll(torch.arange(N, device=device, dtype=torch.long),
+                              shifts=shift_amount)
+        elif mode == "block":
+            block_size = int(strength)
+            assert H % block_size == 0 and W % block_size == 0, "block_size 必须整除 H 和 W"
+            Bh = H // block_size
+            Bw = W // block_size
+            n_blocks = Bh * Bw
+
+            blocks = []
+            for br in range(Bh):
+                for bc in range(Bw):
+                    block_idx = []
+                    for bi in range(block_size):
+                        for bj in range(block_size):
+                            orig = (br * block_size + bi) * W + (bc * block_size + bj)
+                            block_idx.append(orig)
+                    blocks.append(block_idx)  # lenth: n_blocks
+
+            block_order = list(range(n_blocks))
+            rng.shuffle(block_order)  # block_order[new_block_pos] = original_block_index
+
+            # construct perm, let perm[new_global_pos] = original_global_index
+            perm = torch.empty(N, dtype=torch.long, device=device)
+            for new_block_pos, orig_block_idx in enumerate(block_order):
+                tr = new_block_pos // Bw
+                tc = new_block_pos % Bw
+                k = 0
+                for bi in range(block_size):
+                    for bj in range(block_size):
+                        new_idx = (tr * block_size + bi) * W + (tc * block_size + bj)
+                        orig_idx = blocks[orig_block_idx][k]
+                        perm[new_idx] = orig_idx
+                        k += 1
+        elif mode == "block_internal":
+            block_size = int(strength)
+            assert H % block_size == 0 and W % block_size == 0, "block_size 必须整除 H 和 W"
+            Bh = H // block_size
+            Bw = W // block_size
+
+            perm = torch.empty(N, dtype=torch.long, device=device)
+            for br in range(Bh):
+                for bc in range(Bw):
+                    block_idx = []
+                    for bi in range(block_size):
+                        for bj in range(block_size):
+                            orig = (br * block_size + bi) * W + (bc * block_size + bj)
+                            block_idx.append(orig)
+                    rng.shuffle(block_idx)
+                    for k, idx in enumerate(block_idx):
+                        bi = k // block_size
+                        bj = k % block_size
+                        new_idx = (br * block_size + bi) * W + (bc * block_size + bj)
+                        perm[new_idx] = idx
+        elif mode == "random":
+            perm = list(range(N))
+            k = int(N * strength)
+            to_shuffle = rng.sample(range(N), k)
+            shuffled = to_shuffle[:]
+            rng.shuffle(shuffled)
+            for a, b in zip(to_shuffle, shuffled):
+                perm[a] = b
+            perm = torch.tensor(perm, device=device, dtype=torch.long)
+        else:
+            raise ValueError(f"unknown mode: {mode}")
+
+        return perm
 
 
 class Segment(Detect):

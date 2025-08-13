@@ -1,36 +1,72 @@
 from ultralytics.utils import LOGGER, colorstr
-from ultralytics.utils.mla import TaskAlignedAssigner_Record, TaskAlignedAssigner_BCE
+from ultralytics.utils.mla import (TaskAlignedAssigner_Record,
+                                   TaskAlignedAssigner_BCE,
+                                   TaskAlignedAssigner_BCE1,
+                                   TaskAlignedAssigner_BCE2,
+                                   TaskAlignedAssigner_Scale,
+                                   TaskAlignedAssigner_Scale_BCE1,
+                                   TaskAlignedAssigner_Scale_BCE2,
+                                   TaskAlignedAssigner_General,
+                                   TaskAlignedAssigner_MixAssign,
+                                   TaskAlignedAssigner_test)
 from ultralytics.utils.tal import TaskAlignedAssigner
 
 
+ASSIGN_USE_STRIDE = (TaskAlignedAssigner_Scale,
+                     TaskAlignedAssigner_Scale_BCE1,
+                     TaskAlignedAssigner_Scale_BCE2)
+
+# bce1 is a mistake so did not add in it
+ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
+                     TaskAlignedAssigner_BCE2,
+                     TaskAlignedAssigner_General,
+                     TaskAlignedAssigner_Scale_BCE2)
+
+def LOGGER_INFO(assigner_type):
+    LOGGER.info(f"Using Logist pd_socre: {type(assigner_type) in ASSIGN_USE_LOGIST}")
+    LOGGER.info(f"Using Stride pd_socre: {type(assigner_type) in ASSIGN_USE_STRIDE}")
+
 def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
     assigner_type = cfg.get("assigner_type", "TaskAlignedAssigner")
+    assigner = None
+    _kwargs = dict(topk=cfg.get("topk", 10),
+                   num_classes=nc,
+                   alpha=cfg.get("alpha", 0.5),
+                   beta=cfg.get("beta", 6.0))
+
     if assigner_type == "TaskAlignedAssigner":
-        _kwargs = dict(topk = cfg.get("topk", 10),
-                     num_classes = nc,
-                     alpha = cfg.get("alpha", 0.5),
-                     beta = cfg.get("beta", 6.0))
-
-        LOGGER.info(f"\r{colorstr('Using '+assigner_type)}: {_kwargs}")
-        return TaskAlignedAssigner(**_kwargs)
+        assigner = TaskAlignedAssigner(**_kwargs)
     elif assigner_type == "TaskAlignedAssigner_BCE":
-        _kwargs = dict(topk = cfg.get("topk", 10),
-                     num_classes = nc,
-                     alpha = cfg.get("alpha", 0.5),
-                     beta = cfg.get("beta", 6.0))
+        assigner = TaskAlignedAssigner_BCE(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_BCE1":
+        assigner = TaskAlignedAssigner_BCE1(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_BCE2":
+        assigner = TaskAlignedAssigner_BCE2(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_MixAssign":
+        assigner = TaskAlignedAssigner_MixAssign(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_test":
+        assigner = TaskAlignedAssigner_test(**_kwargs)
 
-        LOGGER.info(f"\r{colorstr('Using '+assigner_type)}: {_kwargs}")
-        return TaskAlignedAssigner_BCE(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_General":
+        _kwargs['align_type'] = cfg.get("align_type", "tal")
+        assigner = TaskAlignedAssigner_General(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_Scale":
+        _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+        assigner = TaskAlignedAssigner_Scale(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_Scale_BCE1":
+        _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+        assigner = TaskAlignedAssigner_Scale_BCE1(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_Scale_BCE2":
+        _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+        assigner = TaskAlignedAssigner_Scale_BCE2(**_kwargs)
     elif assigner_type == "TaskAlignedAssigner_Record":
-        _kwargs = dict(topk=cfg.get("topk", 10),
-                       num_classes=nc,
-                       alpha=cfg.get("alpha", 0.5),
-                       beta=cfg.get("beta", 6.0),
-                       dir_name=cfg.get("dir_name", 'test'),
-                       save_step=cfg.get("save_step", 10))
-
-        LOGGER.info(f"\r{colorstr('Using ' + assigner_type)}: {_kwargs}")
-        return TaskAlignedAssigner_Record(**_kwargs)
-
+        _kwargs['dir_name'] = cfg.get("dir_name", 'test')
+        _kwargs['save_step'] = cfg.get("save_step", 10)
+        assigner = TaskAlignedAssigner_Record(**_kwargs)
     else:
         raise ValueError(f"Unknown assigner type: {assigner_type}")
+
+    LOGGER.info(f"\r{colorstr('Using '+ str(type(assigner)))}: {_kwargs}")
+    LOGGER_INFO(assigner)
+    return assigner
+

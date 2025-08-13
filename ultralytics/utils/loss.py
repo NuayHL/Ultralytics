@@ -9,9 +9,8 @@ import torch.nn.functional as F
 from ultralytics.utils.metrics import OKS_SIGMA
 from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
 from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigner, dist2bbox, dist2rbox, make_anchors
-from ultralytics.utils.mla import TaskAlignedAssigner_BCE
 from ultralytics.utils.torch_utils import autocast
-from .assignment import get_task_aligned_assigner
+from .assignment import get_task_aligned_assigner, ASSIGN_USE_STRIDE, ASSIGN_USE_LOGIST
 
 from .metrics import bbox_iou, probiou
 from .tal import bbox2dist
@@ -295,7 +294,8 @@ class v8DetectionLoss:
         self.use_dfl = m.reg_max > 1
 
         self.assigner = get_task_aligned_assigner(cfg=cfg, nc=self.nc)
-        self.assigner_sigmoid_input = not isinstance(self.assigner, TaskAlignedAssigner_BCE)
+        self.assigner_sigmoid_input = not type(self.assigner) in ASSIGN_USE_LOGIST
+        self.assigner_use_stride_input = type(self.assigner) in ASSIGN_USE_STRIDE
         # self.assigner = TaskAlignedAssigner(topk=tal_topk, num_classes=self.nc, alpha=0.5, beta=6.0)
         self.bbox_loss = BboxLoss(m.reg_max).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
@@ -353,6 +353,15 @@ class v8DetectionLoss:
         # dfl_conf = pred_distri.view(batch_size, -1, 4, self.reg_max).detach().softmax(-1)
         # dfl_conf = (dfl_conf.amax(-1).mean(-1) + dfl_conf.amax(-1).amin(-1)) / 2
 
+        # cal the stride for enlarge the target area for pos candidates
+        _stride = 1.0
+        if self.assigner_use_stride_input:
+            _bs = pred_scores.shape[0]
+            _n_max_boxes = gt_bboxes.shape[1]
+            _dtype = gt_bboxes.dtype
+            _stride = (stride_tensor.clone().squeeze().unsqueeze(0).unsqueeze(0).repeat(_bs, _n_max_boxes, 1).
+                       to(_dtype).to(gt_bboxes.device))
+
         _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
             # pred_scores.detach().sigmoid() * 0.8 + dfl_conf.unsqueeze(-1) * 0.2,
             pred_scores.detach().sigmoid() if self.assigner_sigmoid_input else pred_scores.detach(), # fixed here
@@ -361,6 +370,7 @@ class v8DetectionLoss:
             gt_labels,
             gt_bboxes,
             mask_gt,
+            stride = -_stride if self.assigner_use_stride_input else None,
         )
 
         target_scores_sum = max(target_scores.sum(), 1)

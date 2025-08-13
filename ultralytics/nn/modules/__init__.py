@@ -94,6 +94,8 @@ from .head import (
     YOLOEDetect,
     YOLOESegment,
     v10Detect,
+
+    DetectPermute,
 )
 from .transformer import (
     AIFI,
