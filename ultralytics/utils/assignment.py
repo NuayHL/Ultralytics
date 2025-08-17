@@ -9,18 +9,24 @@ from ultralytics.utils.mla import (TaskAlignedAssigner_Record,
                                    TaskAlignedAssigner_General,
                                    TaskAlignedAssigner_MixAssign,
                                    TaskAlignedAssigner_test)
+from ultralytics.utils.mla_hbg import (TaskAlignedAssigner_hbg,
+                                       TaskAlignedAssigner_hbg_with_Scale)
 from ultralytics.utils.tal import TaskAlignedAssigner
 
 
 ASSIGN_USE_STRIDE = (TaskAlignedAssigner_Scale,
                      TaskAlignedAssigner_Scale_BCE1,
-                     TaskAlignedAssigner_Scale_BCE2)
+                     TaskAlignedAssigner_Scale_BCE2,
+                     TaskAlignedAssigner_hbg_with_Scale)
 
 # bce1 is a mistake so did not add in it
 ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
                      TaskAlignedAssigner_BCE2,
                      TaskAlignedAssigner_General,
                      TaskAlignedAssigner_Scale_BCE2)
+
+ASSIGN_USE_HBG = (TaskAlignedAssigner_hbg,
+                  TaskAlignedAssigner_hbg_with_Scale)
 
 def LOGGER_INFO(assigner_type):
     LOGGER.info(f"Using Logist pd_socre: {type(assigner_type) in ASSIGN_USE_LOGIST}")
@@ -46,6 +52,12 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
         assigner = TaskAlignedAssigner_MixAssign(**_kwargs)
     elif assigner_type == "TaskAlignedAssigner_test":
         assigner = TaskAlignedAssigner_test(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_hbg":
+        _kwargs['hbg_topk'] = cfg.get("hbg_topk", 20)
+        assigner = TaskAlignedAssigner_hbg(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_hbg_with_Scale":
+        _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+        assigner = TaskAlignedAssigner_hbg_with_Scale(**_kwargs)
 
     elif assigner_type == "TaskAlignedAssigner_General":
         _kwargs['align_type'] = cfg.get("align_type", "tal")

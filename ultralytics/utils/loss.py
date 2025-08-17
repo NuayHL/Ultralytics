@@ -1,20 +1,31 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
 from typing import Any, Dict, List, Tuple
+import math
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ultralytics.utils import LOGGER, colorstr
 from ultralytics.utils.metrics import OKS_SIGMA
 from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
 from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigner, dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import autocast
-from .assignment import get_task_aligned_assigner, ASSIGN_USE_STRIDE, ASSIGN_USE_LOGIST
+from .assignment import get_task_aligned_assigner, ASSIGN_USE_STRIDE, ASSIGN_USE_LOGIST, ASSIGN_USE_HBG
 
 from .metrics import bbox_iou, probiou
 from .tal import bbox2dist
 
+def get_detection_loss(cfg):
+    loss_name = cfg.get('main_loss', 'default')
+    LOGGER.info(f'Using main loss: {loss_name}')
+    if loss_name == 'default':
+        return v8DetectionLoss
+    elif loss_name == 'dflbg':
+        return v8DetectionLoss_dflbg
+    else:
+        raise ValueError(f'Unknown loss name: {loss_name}')
 
 class HardnessEnhancedFocalLoss(nn.Module):
     """Advanced Focal Loss with additional modulation parameters.
@@ -187,7 +198,6 @@ class DFLoss(nn.Module):
             + F.cross_entropy(pred_dist, tr.view(-1), reduction="none").view(tl.shape) * wr
         ).mean(-1, keepdim=True)
 
-
 class BboxLoss(nn.Module):
     """Criterion class for computing training losses for bounding boxes."""
 
@@ -220,6 +230,63 @@ class BboxLoss(nn.Module):
             loss_dfl = torch.tensor(0.0).to(pred_dist.device)
 
         return loss_iou, loss_dfl
+
+class BboxLoss_hbg(nn.Module):
+    """Criterion class for computing training losses for bounding boxes."""
+
+    def __init__(self, reg_max: int = 16, hbg_loss_type = 'entropy'):
+        """Initialize the BboxLoss module with regularization maximum and DFL settings."""
+        super().__init__()
+        self.dfl_loss = DFLoss(reg_max) if reg_max > 1 else None
+        self.hbg_loss_type = hbg_loss_type
+        self.max_entropy = math.log(reg_max)
+
+    def forward(
+        self,
+        pred_dist: torch.Tensor,
+        pred_bboxes: torch.Tensor,
+        anchor_points: torch.Tensor,
+        target_bboxes: torch.Tensor,
+        target_scores: torch.Tensor,
+        target_scores_sum: torch.Tensor,
+        fg_mask: torch.Tensor,
+        hbg_mask: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Compute IoU and DFL losses for bounding boxes."""
+        weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
+        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
+        loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
+
+        # DFL loss
+        if self.dfl_loss:
+            target_ltrb = bbox2dist(anchor_points, target_bboxes, self.dfl_loss.reg_max - 1)
+            loss_dfl = self.dfl_loss(pred_dist[fg_mask].view(-1, self.dfl_loss.reg_max), target_ltrb[fg_mask]) * weight
+            loss_dfl = loss_dfl.sum() / target_scores_sum
+
+            pred_dist_bg = pred_dist[hbg_mask]
+            if pred_dist_bg.numel() > 0:
+                pred_dist_bg_reshaped = pred_dist_bg.view(-1, self.dfl_loss.reg_max)
+                pred_prob_bg = F.softmax(pred_dist_bg_reshaped, dim=-1)
+                if self.hbg_loss_type == 'entropy':
+                    entropy = - (pred_prob_bg * torch.log(pred_prob_bg + 1e-8)).sum(dim=-1)
+                    loss_dfl_bg = - entropy.mean()
+                elif self.hbg_loss_type == 'entropy_pos':
+                    entropy = - (pred_prob_bg * torch.log(pred_prob_bg + 1e-8)).sum(dim=-1)
+                    loss_dfl_bg = (self.max_entropy - entropy).mean()
+                elif self.hbg_loss_type == "maxmin":
+                    max_prob, _ = pred_prob_bg.max(dim=-1)
+                    min_prob, _ = pred_prob_bg.min(dim=-1)
+                    loss_dfl_bg = (max_prob - min_prob).mean()
+                else:
+                    raise ValueError(f"Unknown bg_loss_type {self.bg_loss_type}")
+                # target_uniform = torch.full_like(pred_dist_bg_reshaped, 1.0 / self.dfl_loss.reg_max)
+            # log_pred_prob_bg = F.log_softmax(pred_dist_bg_reshaped, dim=-1)
+            # loss_dfl_bg = F.kl_div(log_pred_prob_bg, target_uniform, reduction='batchmean')
+        else:
+            loss_dfl = torch.tensor(0.0).to(pred_dist.device)
+            loss_dfl_bg = torch.tensor(0.0, device=pred_dist.device)
+
+        return loss_iou, loss_dfl, loss_dfl_bg
 
 
 class RotatedBboxLoss(BboxLoss):
@@ -389,6 +456,87 @@ class v8DetectionLoss:
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
+
+        return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+
+class v8DetectionLoss_dflbg(v8DetectionLoss):
+    def __init__(self, model, cfg: dict, tal_topk: int = 10):  # model must be de-paralleled
+        """Initialize v8DetectionLoss with model parameters and task-aligned assignment settings."""
+        super().__init__(model=model, cfg=cfg)
+        self.dfl_bg = cfg.get("dfl_bg", 1.0)
+        self.hbg_loss_type = cfg.get("hbg_loss_type", "entropy")
+        LOGGER.info(f"dfl_bg weight: {self.dfl_bg}")
+        LOGGER.info(f"hbg_loss_type: {self.hbg_loss_type}")
+        self.bbox_loss = BboxLoss_hbg(self.reg_max, self.hbg_loss_type).to(self.device)
+
+        assert type(self.assigner) in ASSIGN_USE_HBG, "The dflbg loss should use TaskAlignedAssigner_hbg series"
+
+    def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
+        loss = torch.zeros(4, device=self.device)  # box, cls, dfl, dfl_bg
+        feats = preds[1] if isinstance(preds, tuple) else preds
+        pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
+            (self.reg_max * 4, self.nc), 1
+        )
+
+        pred_scores = pred_scores.permute(0, 2, 1).contiguous()
+        pred_distri = pred_distri.permute(0, 2, 1).contiguous()
+
+        dtype = pred_scores.dtype
+        batch_size = pred_scores.shape[0]
+        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]  # image size (h,w)
+        anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
+
+        # Targets
+        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+        gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
+        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+
+        # Pboxes
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
+        # dfl_conf = pred_distri.view(batch_size, -1, 4, self.reg_max).detach().softmax(-1)
+        # dfl_conf = (dfl_conf.amax(-1).mean(-1) + dfl_conf.amax(-1).amin(-1)) / 2
+
+        # cal the stride for enlarge the target area for pos candidates
+        _stride = 1.0
+        if self.assigner_use_stride_input:
+            _bs = pred_scores.shape[0]
+            _n_max_boxes = gt_bboxes.shape[1]
+            _dtype = gt_bboxes.dtype
+            _stride = (stride_tensor.clone().squeeze().unsqueeze(0).unsqueeze(0).repeat(_bs, _n_max_boxes, 1).
+                       to(_dtype).to(gt_bboxes.device))
+
+        _, target_bboxes, target_scores, fg_mask, _, hbg_mask = self.assigner(
+            # pred_scores.detach().sigmoid() * 0.8 + dfl_conf.unsqueeze(-1) * 0.2,
+            pred_scores.detach().sigmoid() if self.assigner_sigmoid_input else pred_scores.detach(), # fixed here
+            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+            anchor_points * stride_tensor,
+            gt_labels,
+            gt_bboxes,
+            mask_gt,
+            stride = -_stride if self.assigner_use_stride_input else None,
+        )
+
+        target_scores_sum = max(target_scores.sum(), 1)
+
+        # Cls loss
+        # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
+        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+
+        # Bbox loss
+        if fg_mask.sum():
+            target_bboxes /= stride_tensor
+            loss[0], loss[2], loss[3] = self.bbox_loss(
+                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum,
+                fg_mask, hbg_mask
+            )
+
+
+        loss[0] *= self.hyp.box  # box gain
+        loss[1] *= self.hyp.cls  # cls gain
+        loss[2] *= self.hyp.dfl  # dfl gain
+        loss[3] *= self.dfl_bg # dfl_bg gain
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
 

@@ -86,6 +86,7 @@ from ultralytics.utils.loss import (
     v8OBBLoss,
     v8PoseLoss,
     v8SegmentationLoss,
+    get_detection_loss
 )
 from ultralytics.utils.ops import make_divisible
 from ultralytics.utils.patches import torch_load
@@ -504,7 +505,8 @@ class DetectionModel(BaseModel):
 
     def init_criterion(self):
         """Initialize the loss criterion for the DetectionModel."""
-        return E2EDetectLoss(self) if getattr(self, "end2end", False) else v8DetectionLoss(self, cfg=self.yaml)
+        return E2EDetectLoss(self) if getattr(self, "end2end", False) \
+            else get_detection_loss(self.yaml)(self, cfg=self.yaml)
 
 
 class OBBModel(DetectionModel):

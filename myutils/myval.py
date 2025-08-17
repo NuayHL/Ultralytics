@@ -75,7 +75,7 @@ def print_info(metrics_dicts):
 if __name__ == "__main__":
     print_info(
     format_metrics(
-        model_path='../runs/detect/visdrone/v12s/weights/best.pt',
+        model_path='../runs/detect/visdrone/v12s_pre_assign_bce1/weights/best.pt',
         data_path='../ultralytics/cfg/datasets/VisDrone.yaml',
         name='val/test',
         batch=8,

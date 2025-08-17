@@ -1525,14 +1525,6 @@ class TaskAlignedAssigner_MixAssign(nn.Module):
         target_gt_idx = mask_pos.argmax(-2)
         return target_gt_idx, fg_mask, mask_pos
 
-        # # 在 topk=1 模式下，检查 assign_pos_fin 是否严格 one-hot
-        # max_per_anchor = assign_pos_fin.max(dim=1).values  # (b, hw)
-        # print(max_per_anchor.min().item(), max_per_anchor.max().item())
-        #
-        # # 检查 sum 是否为 1
-        # sum_per_anchor = assign_pos_fin.sum(dim=1)
-        # print(sum_per_anchor.min().item(), sum_per_anchor.max().item())
-
     # @staticmethod
     # def select_highest_overlaps(mask_pos, overlaps, n_max_boxes, top_k=1):
     #     """
