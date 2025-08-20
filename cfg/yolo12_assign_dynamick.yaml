@@ -5,10 +5,13 @@
 # Task docs: https://docs.ultralytics.com/tasks/detect
 
 # Assigner Para
-assigner_type: 'TaskAlignedAssigner_test'
+assigner_type: 'TaskAlignedAssigner_dynamicK'
 topk: 10
 alpha: 0.5
 beta: 6.0
+max_topk: 10
+min_topk: 3
+metric_sum_thr: 4.0
 
 # Parameters
 nc: 80 # number of classes

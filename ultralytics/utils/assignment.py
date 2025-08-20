@@ -8,7 +8,8 @@ from ultralytics.utils.mla import (TaskAlignedAssigner_Record,
                                    TaskAlignedAssigner_Scale_BCE2,
                                    TaskAlignedAssigner_General,
                                    TaskAlignedAssigner_MixAssign,
-                                   TaskAlignedAssigner_test)
+                                   TaskAlignedAssigner_dynamicK,
+                                   TaskAlignedAssigner_Scale_dynamicK)
 from ultralytics.utils.mla_hbg import (TaskAlignedAssigner_hbg,
                                        TaskAlignedAssigner_hbg_with_Scale)
 from ultralytics.utils.tal import TaskAlignedAssigner
@@ -17,7 +18,8 @@ from ultralytics.utils.tal import TaskAlignedAssigner
 ASSIGN_USE_STRIDE = (TaskAlignedAssigner_Scale,
                      TaskAlignedAssigner_Scale_BCE1,
                      TaskAlignedAssigner_Scale_BCE2,
-                     TaskAlignedAssigner_hbg_with_Scale)
+                     TaskAlignedAssigner_hbg_with_Scale,
+                     TaskAlignedAssigner_Scale_dynamicK)
 
 # bce1 is a mistake so did not add in it
 ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
@@ -50,8 +52,17 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
         assigner = TaskAlignedAssigner_BCE2(**_kwargs)
     elif assigner_type == "TaskAlignedAssigner_MixAssign":
         assigner = TaskAlignedAssigner_MixAssign(**_kwargs)
-    elif assigner_type == "TaskAlignedAssigner_test":
-        assigner = TaskAlignedAssigner_test(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_dynamicK":
+        _kwargs['min_topk'] = cfg.get("min_topk", 4)
+        _kwargs['max_topk'] = cfg.get("max_topk", 10)
+        _kwargs['metric_sum_thr'] = cfg.get("metric_sum_thr", 3)
+        assigner = TaskAlignedAssigner_dynamicK(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_Scale_dynamicK":
+        _kwargs['min_topk'] = cfg.get("min_topk", 4)
+        _kwargs['max_topk'] = cfg.get("max_topk", 10)
+        _kwargs['metric_sum_thr'] = cfg.get("metric_sum_thr", 3)
+        _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+        assigner = TaskAlignedAssigner_Scale_dynamicK(**_kwargs)
     elif assigner_type == "TaskAlignedAssigner_hbg":
         _kwargs['hbg_topk'] = cfg.get("hbg_topk", 20)
         assigner = TaskAlignedAssigner_hbg(**_kwargs)
