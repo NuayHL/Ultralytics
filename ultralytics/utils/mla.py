@@ -55,7 +55,7 @@ class TaskAlignedAssigner_Record(nn.Module):
         self.save_step = save_step
 
     @torch.no_grad()
-    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, stride=None):
+    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, stride=None, **kwargs):
         """
         Compute the task-aligned assignment.
 
@@ -741,7 +741,7 @@ class TaskAlignedAssigner_Scale(TaskAlignedAssigner):
 
 
     @torch.no_grad()
-    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, stride=None):
+    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, stride=None, **kwargs):
         """
         Compute the task-aligned assignment.
 
@@ -919,7 +919,7 @@ class TaskAlignedAssigner_Scale_BCE1(TaskAlignedAssigner):
 
 
     @torch.no_grad()
-    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, stride=None):
+    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, stride=None, **kwargs):
         """
         Compute the task-aligned assignment.
 
@@ -1232,7 +1232,7 @@ class TaskAlignedAssigner_MixAssign(nn.Module):
         self.eps = eps
 
     @torch.no_grad()
-    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, stride=None):
+    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, stride=None, **kwargs):
         """
         Compute the task-aligned assignment.
 
@@ -1585,6 +1585,7 @@ class TaskAlignedAssigner_dynamicK(TaskAlignedAssigner):
         self.max_topk = kwargs['max_topk'] if 'max_topk' in kwargs else 10
         self.min_topk = kwargs['min_topk'] if 'min_topk' in kwargs else 3
         self.metric_sum_thr = kwargs['metric_sum_thr'] if 'metric_sum_thr' in kwargs else 4.0
+        self.topk = self.max_topk
 
     def get_pos_mask(self, pd_scores, pd_bboxes, gt_labels, gt_bboxes, anc_points, mask_gt):
         """
@@ -1666,7 +1667,6 @@ class TaskAlignedAssigner_dynamicK(TaskAlignedAssigner):
 
         # 过滤重复（理论上不会出现，但保险起见）
         count_tensor.masked_fill_(count_tensor > 1, 0)
-
         return count_tensor.to(metrics.dtype)
 
 class TaskAlignedAssigner_Scale_dynamicK(TaskAlignedAssigner):
@@ -1700,9 +1700,10 @@ class TaskAlignedAssigner_Scale_dynamicK(TaskAlignedAssigner):
         self.max_topk = kwargs['max_topk'] if 'max_topk' in kwargs else 10
         self.min_topk = kwargs['min_topk'] if 'min_topk' in kwargs else 3
         self.metric_sum_thr = kwargs['metric_sum_thr'] if 'metric_sum_thr' in kwargs else 4.0
+        self.topk = self.max_topk
 
     @torch.no_grad()
-    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, stride=None):
+    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, stride=None, **kwargs):
         """
         Compute the task-aligned assignment.
 

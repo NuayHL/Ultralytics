@@ -12,6 +12,8 @@ from ultralytics.utils.mla import (TaskAlignedAssigner_Record,
                                    TaskAlignedAssigner_Scale_dynamicK)
 from ultralytics.utils.mla_hbg import (TaskAlignedAssigner_hbg,
                                        TaskAlignedAssigner_hbg_with_Scale)
+from ultralytics.utils.mla_kde import (TaskAlignedAssigner_kde_dynamicK,
+                                       TaskAlignedAssigner_kde)
 from ultralytics.utils.tal import TaskAlignedAssigner
 
 
@@ -63,6 +65,21 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
         _kwargs['metric_sum_thr'] = cfg.get("metric_sum_thr", 3)
         _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
         assigner = TaskAlignedAssigner_Scale_dynamicK(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_kde":
+        _kwargs['kde_max_topk'] = cfg.get('kde_max_topk', 10)
+        _kwargs['kde_min_topk'] = cfg.get('kde_min_topk', 3)
+        _kwargs['kde_metric_sum_thr'] = cfg.get('kde_metric_sum_thr', 4.0)
+        _kwargs['bandwidth_scale_factor'] = cfg.get("bandwidth_scale_factor", 0.15)
+        assigner = TaskAlignedAssigner_kde(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_kde_dynamicK":
+        _kwargs['min_topk'] = cfg.get("min_topk", 4)
+        _kwargs['max_topk'] = cfg.get("max_topk", 10)
+        _kwargs['metric_sum_thr'] = cfg.get("metric_sum_thr", 3)
+        _kwargs['kde_max_topk'] = cfg.get('kde_max_topk', 10)
+        _kwargs['kde_min_topk'] = cfg.get('kde_min_topk', 3)
+        _kwargs['kde_metric_sum_thr'] = cfg.get('kde_metric_sum_thr', 4.0)
+        _kwargs['bandwidth_scale_factor'] = cfg.get("bandwidth_scale_factor", 0.15)
+        assigner = TaskAlignedAssigner_kde_dynamicK(**_kwargs)
     elif assigner_type == "TaskAlignedAssigner_hbg":
         _kwargs['hbg_topk'] = cfg.get("hbg_topk", 20)
         assigner = TaskAlignedAssigner_hbg(**_kwargs)
