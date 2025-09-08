@@ -373,6 +373,87 @@ class TaskAlignedAssigner_Record(nn.Module):
         target_gt_idx = mask_pos.argmax(-2)  # (b, h*w)
         return target_gt_idx, fg_mask, mask_pos
 
+class TaskAlignedAssigner_abtest(TaskAlignedAssigner):
+    """
+    A task-aligned assigner for object detection.
+
+    This class assigns ground-truth (gt) objects to anchors based on the task-aligned metric, which combines both
+    classification and localization information.
+
+    Attributes:
+        topk (int): The number of top candidates to consider.
+        num_classes (int): The number of object classes.
+        alpha (float): The alpha parameter for the classification component of the task-aligned metric.
+        beta (float): The beta parameter for the localization component of the task-aligned metric.
+        eps (float): A small value to prevent division by zero.
+    """
+    def __init__(self, topk: int = 13, num_classes: int = 80, alpha: float = 1.0, beta: float = 6.0, eps: float = 1e-9,
+                 **kwargs):
+        super().__init__(topk=topk, num_classes=num_classes, alpha=alpha, beta=beta, eps=eps)
+        self.score_alpha = kwargs.get('score_alpha', 0.5)
+        self.score_beta = kwargs.get('score_beta', 6.0)
+
+    def get_pos_mask(self, pd_scores, pd_bboxes, gt_labels, gt_bboxes, anc_points, mask_gt):
+        """
+        Get positive mask for each ground truth box.
+
+        Args:
+            pd_scores (torch.Tensor): Predicted classification scores with shape (bs, num_total_anchors, num_classes).
+            pd_bboxes (torch.Tensor): Predicted bounding boxes with shape (bs, num_total_anchors, 4).
+            gt_labels (torch.Tensor): Ground truth labels with shape (bs, n_max_boxes, 1).
+            gt_bboxes (torch.Tensor): Ground truth boxes with shape (bs, n_max_boxes, 4).
+            anc_points (torch.Tensor): Anchor points with shape (num_total_anchors, 2).
+            mask_gt (torch.Tensor): Mask for valid ground truth boxes with shape (bs, n_max_boxes, 1).
+
+        Returns:
+            mask_pos (torch.Tensor): Positive mask with shape (bs, max_num_obj, h*w).
+            align_metric (torch.Tensor): Alignment metric with shape (bs, max_num_obj, h*w).
+            overlaps (torch.Tensor): Overlaps between predicted and ground truth boxes with shape (bs, max_num_obj, h*w).
+        """
+        mask_in_gts = self.select_candidates_in_gts(anc_points, gt_bboxes) # (b, max_num_obj, num_anchor=h*w)
+        # Get anchor_align metric, (b, max_num_obj, h*w)
+        align_metric_for_topk, overlaps, align_metric_for_score = self.get_box_metrics(pd_scores, pd_bboxes, gt_labels, gt_bboxes, mask_in_gts * mask_gt)
+        # Get topk_metric mask, (b, max_num_obj, h*w)
+        mask_topk = self.select_topk_candidates(align_metric_for_topk, topk_mask=mask_gt.expand(-1, -1, self.topk).bool())
+        # Merge all mask to a final mask, (b, max_num_obj, h*w)
+        mask_pos = mask_topk * mask_in_gts * mask_gt
+
+        return mask_pos, align_metric_for_score, overlaps
+
+    def get_box_metrics(self, pd_scores, pd_bboxes, gt_labels, gt_bboxes, mask_gt):
+        """
+        Compute alignment metric given predicted and ground truth bounding boxes.
+
+        Args:
+            pd_scores (torch.Tensor): Predicted classification scores with shape (bs, num_total_anchors, num_classes).
+            pd_bboxes (torch.Tensor): Predicted bounding boxes with shape (bs, num_total_anchors, 4).
+            gt_labels (torch.Tensor): Ground truth labels with shape (bs, n_max_boxes, 1).
+            gt_bboxes (torch.Tensor): Ground truth boxes with shape (bs, n_max_boxes, 4).
+            mask_gt (torch.Tensor): Mask for valid ground truth boxes with shape (bs, n_max_boxes, h*w).
+
+        Returns:
+            align_metric (torch.Tensor): Alignment metric combining classification and localization.
+            overlaps (torch.Tensor): IoU overlaps between predicted and ground truth boxes.
+        """
+        na = pd_bboxes.shape[-2]
+        mask_gt = mask_gt.bool()  # b, max_num_obj, h*w
+        overlaps = torch.zeros([self.bs, self.n_max_boxes, na], dtype=pd_bboxes.dtype, device=pd_bboxes.device)
+        bbox_scores = torch.zeros([self.bs, self.n_max_boxes, na], dtype=pd_scores.dtype, device=pd_scores.device)
+
+        ind = torch.zeros([2, self.bs, self.n_max_boxes], dtype=torch.long)  # 2, b, max_num_obj
+        ind[0] = torch.arange(end=self.bs).view(-1, 1).expand(-1, self.n_max_boxes)  # b, max_num_obj
+        ind[1] = gt_labels.squeeze(-1)  # b, max_num_obj
+        # Get the scores of each grid for each gt cls (only for gt's cls)
+        bbox_scores[mask_gt] = pd_scores[ind[0], :, ind[1]][mask_gt]  # b, max_num_obj, h*w
+
+        # (b, max_num_obj, 1, 4), (b, 1, h*w, 4)
+        pd_boxes = pd_bboxes.unsqueeze(1).expand(-1, self.n_max_boxes, -1, -1)[mask_gt]
+        gt_boxes = gt_bboxes.unsqueeze(2).expand(-1, -1, na, -1)[mask_gt]
+        overlaps[mask_gt] = self.iou_calculation(gt_boxes, pd_boxes)
+
+        align_metric_for_topk = bbox_scores.pow(self.alpha) * overlaps.pow(self.beta)
+        align_metric_for_score = bbox_scores.pow(self.score_alpha) * overlaps.pow(self.score_beta)
+        return align_metric_for_topk, overlaps, align_metric_for_score
 
 class TaskAlignedAssigner_BCE(TaskAlignedAssigner):
     """
