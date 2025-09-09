@@ -34,8 +34,8 @@ ASSIGN_USE_HBG = (TaskAlignedAssigner_hbg,
                   TaskAlignedAssigner_hbg_with_Scale)
 
 def LOGGER_INFO(assigner_type):
-    LOGGER.info(f"Using Logist pd_socre: {type(assigner_type) in ASSIGN_USE_LOGIST}")
-    LOGGER.info(f"Using Stride pd_socre: {type(assigner_type) in ASSIGN_USE_STRIDE}")
+    LOGGER.info(f"{colorstr('Using Logist pd_socre')}: {type(assigner_type) in ASSIGN_USE_LOGIST}")
+    LOGGER.info(f"{colorstr('Using Stride pd_socre')}: {type(assigner_type) in ASSIGN_USE_STRIDE}")
 
 def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
     assigner_type = cfg.get("assigner_type", "TaskAlignedAssigner")
