@@ -17,7 +17,7 @@ on:
     inputs:
       Dockerfile:
         type: boolean
-        description: Dockerfile (+ runner)
+        description: Dockerfile (+ runner, export)
         default: true
       Dockerfile-python:
         type: boolean
@@ -31,10 +31,10 @@ on:
         type: boolean
         description: Dockerfile-jetson-jetpack6
         default: true
-      Dockerfile-jetson-jetpack5:
-        type: boolean
-        description: Dockerfile-jetson-jetpack5
-        default: true
+      # Dockerfile-jetson-jetpack5:
+      #   type: boolean
+      #   description: Dockerfile-jetson-jetpack5
+      #   default: true
       Dockerfile-jetson-jetpack4:
         type: boolean
         description: Dockerfile-jetson-jetpack4
@@ -61,7 +61,7 @@ jobs:
             tags: "latest"
             platforms: "linux/amd64"
             runs_on: "ubuntu-latest"
-            derivatives: "Dockerfile-runner"
+            derivatives: "Dockerfile-runner,Dockerfile-export"
           - dockerfile: "Dockerfile-python"
             tags: "latest-python"
             platforms: "linux/amd64"
@@ -78,11 +78,11 @@ jobs:
             platforms: "linux/arm64"
             runs_on: "ubuntu-24.04-arm"
             derivatives: ""
-          - dockerfile: "Dockerfile-jetson-jetpack5"
-            tags: "latest-jetson-jetpack5"
-            platforms: "linux/arm64"
-            runs_on: "ubuntu-24.04-arm"
-            derivatives: ""
+          # - dockerfile: "Dockerfile-jetson-jetpack5"
+          #   tags: "latest-jetson-jetpack5"
+          #   platforms: "linux/arm64"
+          #   runs_on: "ubuntu-24.04-arm"
+          #   derivatives: ""
           - dockerfile: "Dockerfile-jetson-jetpack4"
             tags: "latest-jetson-jetpack4"
             platforms: "linux/arm64"
@@ -101,7 +101,7 @@ jobs:
         uses: ultralytics/actions/cleanup-disk@main
 
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0 # copy full .git directory to access full git history in Docker images
 
@@ -192,7 +192,7 @@ jobs:
                 # Determine derivative tags
                 derivative_tag=$(echo "$derivative" | sed 's/Dockerfile-/latest-/')
                 derivative_version_tag=$(echo "$derivative_tag" | sed "s/latest/${{ steps.get_version.outputs.version }}/")
-                
+
                 echo "Building $derivative -> $derivative_tag"
                 docker build \
                   --platform ${{ matrix.platforms }} \
@@ -210,15 +210,15 @@ jobs:
 
       - name: Check Environment
         if: (github.event_name == 'push' || github.event.inputs[matrix.dockerfile] == 'true') && (matrix.platforms == 'linux/amd64' || matrix.platforms == 'linux/arm64') && matrix.dockerfile != 'Dockerfile-conda'
-        run: docker run ultralytics/ultralytics:${{ matrix.tags == 'latest-python' && 'latest-python-export' || matrix.tags }} /bin/bash -c "yolo checks && uv pip list"
+        run: docker run ultralytics/ultralytics:${{ (matrix.tags == 'latest-python' && 'latest-python-export') || (matrix.tags == 'latest' && 'latest-export') || matrix.tags }} /bin/bash -c "yolo checks && uv pip list"
 
       - name: Run Tests
         if: (github.event_name == 'push' || github.event.inputs[matrix.dockerfile] == 'true') && (matrix.platforms == 'linux/amd64' || matrix.platforms == 'linux/arm64') && matrix.dockerfile != 'Dockerfile-conda'
-        run: docker run ultralytics/ultralytics:${{ matrix.tags == 'latest-python' && 'latest-python-export' || matrix.tags }} /bin/bash -c "pip install pytest && pytest tests"
+        run: docker run ultralytics/ultralytics:${{ (matrix.tags == 'latest-python' && 'latest-python-export') || (matrix.tags == 'latest' && 'latest-export') || matrix.tags }} /bin/bash -c "pip install pytest && pytest tests"
 
       - name: Run Benchmarks
         if: (github.event_name == 'push' || github.event.inputs[matrix.dockerfile] == 'true') && (matrix.platforms == 'linux/amd64' || matrix.dockerfile == 'Dockerfile-arm64') && matrix.dockerfile != 'Dockerfile' && matrix.dockerfile != 'Dockerfile-conda'
-        run: docker run ultralytics/ultralytics:${{ matrix.tags == 'latest-python' && 'latest-python-export' || matrix.tags }} yolo benchmark model=yolo11n.pt imgsz=160 verbose=0.309
+        run: docker run ultralytics/ultralytics:${{ (matrix.tags == 'latest-python' && 'latest-python-export') || (matrix.tags == 'latest' && 'latest-export') || matrix.tags }} yolo benchmark model=yolo11n.pt imgsz=160 verbose=0.309
 
       - name: Push All Images
         if: github.event_name == 'push' || (github.event.inputs[matrix.dockerfile] == 'true' && github.event.inputs.push == 'true')
@@ -230,7 +230,7 @@ jobs:
           run: |
             # Create array of all images to push (base + derivatives)
             images_to_push=("${{ matrix.tags }}")
-            
+
             # Add derivative images to array
             derivatives='${{ matrix.derivatives }}'
             if [[ -n "$derivatives" ]]; then
@@ -240,12 +240,12 @@ jobs:
                 images_to_push+=("$derivative_tag")
               done
             fi
-            
+
             # Push all images (base + derivatives)
             for tag in "${images_to_push[@]}"; do
               docker push "ultralytics/ultralytics:$tag"
               docker push "ghcr.io/ultralytics/ultralytics:$tag"
-              
+
               # Push version tag if new release
               if [[ "${{ steps.check_tag.outputs.new_release }}" == "true" && "${{ matrix.dockerfile }}" != "Dockerfile-conda" ]]; then
                 version_tag=$(echo "$tag" | sed "s/latest/${{ steps.get_version.outputs.version }}/")
