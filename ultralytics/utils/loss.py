@@ -204,10 +204,13 @@ class DFLoss(nn.Module):
 class BboxLoss(nn.Module):
     """Criterion class for computing training losses for bounding boxes."""
 
-    def __init__(self, reg_max: int = 16):
+    def __init__(self, reg_max: int = 16, iou_type: str = "CIoU", iou_kargs: dict = {}):
         """Initialize the BboxLoss module with regularization maximum and DFL settings."""
         super().__init__()
         self.dfl_loss = DFLoss(reg_max) if reg_max > 1 else None
+        self.iou_type = iou_type
+        self.iou_kargs = iou_kargs
+        LOGGER.info(f"{colorstr('iou_type')}: {self.iou_type}\n{colorstr('iou_kargs')}: {self.iou_kargs}")
 
     def forward(
         self,
@@ -221,7 +224,8 @@ class BboxLoss(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute IoU and DFL losses for bounding boxes."""
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
-        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
+        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False,
+                       iou_type=self.iou_type, iou_kargs=self.iou_kargs)
         loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
 
         # DFL loss
@@ -257,7 +261,7 @@ class BboxLoss_hbg(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute IoU and DFL losses for bounding boxes."""
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
-        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
+        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False)
         loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
 
         # DFL loss
@@ -367,7 +371,10 @@ class v8DetectionLoss:
         self.assigner_sigmoid_input = not type(self.assigner) in ASSIGN_USE_LOGIST
         self.assigner_use_stride_input = type(self.assigner) in ASSIGN_USE_STRIDE
         # self.assigner = TaskAlignedAssigner(topk=tal_topk, num_classes=self.nc, alpha=0.5, beta=6.0)
-        self.bbox_loss = BboxLoss(m.reg_max).to(device)
+
+        iou_type = cfg.get("iou_type", "CIoU")
+        iou_kargs = cfg.get("iou_kargs", {})
+        self.bbox_loss = BboxLoss(reg_max=m.reg_max, iou_type=iou_type, iou_kargs=iou_kargs).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:

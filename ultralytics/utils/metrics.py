@@ -80,9 +80,8 @@ def bbox_iou(
     box1: torch.Tensor,
     box2: torch.Tensor,
     xywh: bool = True,
-    GIoU: bool = False,
-    DIoU: bool = False,
-    CIoU: bool = False,
+    iou_type: str = "CIoU",
+    iou_kargs: dict = {},
     eps: float = 1e-7,
 ) -> torch.Tensor:
     """
@@ -98,9 +97,8 @@ def bbox_iou(
         box2 (torch.Tensor): A tensor representing one or more bounding boxes, with the last dimension being 4.
         xywh (bool, optional): If True, input boxes are in (x, y, w, h) format. If False, input boxes are in
                                (x1, y1, x2, y2) format.
-        GIoU (bool, optional): If True, calculate Generalized IoU.
-        DIoU (bool, optional): If True, calculate Distance IoU.
-        CIoU (bool, optional): If True, calculate Complete IoU.
+        iou_type (str, optional): The type of IoU to calculate. Supported values are "CIoU", "DIoU", "GIoU", "IoU",
+        iou_kargs (dict, optional): A dictionary containing keyword arguments for calculating IoU.
         eps (float, optional): A small value to avoid division by zero.
 
     Returns:
@@ -128,15 +126,36 @@ def bbox_iou(
 
     # IoU
     iou = inter / union
-    if CIoU or DIoU or GIoU:
+
+    # interpiou frameworks
+    if iou_type in ["InterpIoU", "D_InterpIoU"]:
+        interp_coe = iou_kargs.get("interp_coe", 0.98)
+        if iou_type == "D_InterpIoU":
+            lv, hv = iou_kargs.get("lv", 0.6), iou_kargs.get("hv", 0.99)
+            interp_coe = torch.clamp((1 - iou.detach()), min=lv, max=hv)
+        bi_x1, bi_y1, bi_x2, bi_y2 = ((1 - interp_coe) * b1_x1 + interp_coe * b2_x1,
+                                      (1 - interp_coe) * b1_y1 + interp_coe * b2_y1,
+                                      (1 - interp_coe) * b1_x2 + interp_coe * b2_x2,
+                                      (1 - interp_coe) * b1_y2 + interp_coe * b2_y2)
+        inter_i = (torch.min(bi_x2, b2_x2) - torch.max(bi_x1, b2_x1)).clamp(0) * \
+                  (torch.min(bi_y2, b2_y2) - torch.max(bi_y1, b2_y1)).clamp(0)
+
+        wi, hi = bi_x2 - bi_x1, bi_y2 - bi_y1 + eps
+        w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
+
+        union_i = wi * hi + w2 * h2 - inter_i + eps
+        iou_i = inter_i / union_i
+        return iou + iou_i - 1
+
+    if iou_type in ["CIoU", "DIoU", "GIoU"]:
         cw = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)  # convex (smallest enclosing box) width
         ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)  # convex height
-        if CIoU or DIoU:  # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
+        if iou_type in ["CIoU", "DIoU"]: # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
             c2 = cw.pow(2) + ch.pow(2) + eps  # convex diagonal squared
             rho2 = (
                 (b2_x1 + b2_x2 - b1_x1 - b1_x2).pow(2) + (b2_y1 + b2_y2 - b1_y1 - b1_y2).pow(2)
             ) / 4  # center dist**2
-            if CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
+            if iou_type == "CIoU":  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
                 v = (4 / math.pi**2) * ((w2 / h2).atan() - (w1 / h1).atan()).pow(2)
                 with torch.no_grad():
                     alpha = v / (v - iou + (1 + eps))
