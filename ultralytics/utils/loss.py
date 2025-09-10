@@ -16,7 +16,7 @@ from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigne
 from ultralytics.utils.torch_utils import autocast, disable_dynamo
 from .assignment import get_task_aligned_assigner, ASSIGN_USE_STRIDE, ASSIGN_USE_LOGIST, ASSIGN_USE_HBG
 
-from .metrics import bbox_iou, probiou
+from .metrics import bbox_iou, probiou, bbox_iou_ext
 from .tal import bbox2dist
 
 def get_detection_loss(cfg):
@@ -224,8 +224,8 @@ class BboxLoss(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute IoU and DFL losses for bounding boxes."""
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
-        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False,
-                       iou_type=self.iou_type, iou_kargs=self.iou_kargs)
+        iou = bbox_iou_ext(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False,
+                           iou_type=self.iou_type, iou_kargs=self.iou_kargs)
         loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
 
         # DFL loss
