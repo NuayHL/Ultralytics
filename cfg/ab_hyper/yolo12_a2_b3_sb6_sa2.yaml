@@ -5,7 +5,7 @@
 # Task docs: https://docs.ultralytics.com/tasks/detect
 
 # Assigner Para
-assigner_type: 'TaskAlignedAssigner'
+assigner_type: 'TaskAlignedAssigner_abtest'
 topk: 10
 alpha: 2.0
 beta: 3.0

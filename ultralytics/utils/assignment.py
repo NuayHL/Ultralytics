@@ -1,6 +1,7 @@
 from ultralytics.utils import LOGGER, colorstr
 from ultralytics.utils.mla import (TaskAlignedAssigner_Record,
                                    TaskAlignedAssigner_abtest,
+                                   TaskAlignedAssigner_Scale_abtest,
                                    TaskAlignedAssigner_BCE,
                                    TaskAlignedAssigner_BCE1,
                                    TaskAlignedAssigner_BCE2,
@@ -22,7 +23,8 @@ ASSIGN_USE_STRIDE = (TaskAlignedAssigner_Scale,
                      TaskAlignedAssigner_Scale_BCE1,
                      TaskAlignedAssigner_Scale_BCE2,
                      TaskAlignedAssigner_hbg_with_Scale,
-                     TaskAlignedAssigner_Scale_dynamicK)
+                     TaskAlignedAssigner_Scale_dynamicK,
+                     TaskAlignedAssigner_Scale_abtest)
 
 # bce1 is a mistake so did not add in it
 ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
@@ -59,6 +61,11 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
         _kwargs['score_alpha'] = cfg.get("score_alpha", 0.5)
         _kwargs['score_beta'] = cfg.get("score_beta", 6.0)
         assigner = TaskAlignedAssigner_abtest(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_Scale_abtest":
+        _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+        _kwargs['score_alpha'] = cfg.get("score_alpha", 0.5)
+        _kwargs['score_beta'] = cfg.get("score_beta", 6.0)
+        assigner = TaskAlignedAssigner_Scale_abtest(**_kwargs)
     elif assigner_type == "TaskAlignedAssigner_dynamicK":
         _kwargs['min_topk'] = cfg.get("min_topk", 4)
         _kwargs['max_topk'] = cfg.get("max_topk", 10)
