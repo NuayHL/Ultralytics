@@ -7,10 +7,8 @@
 # Assigner Para
 assigner_type: 'TaskAlignedAssigner'
 topk: 10
-alpha: 1.0
-beta: 5.0
-score_alpha: 2.0
-score_beta: 6.0
+alpha: 2.0
+beta: 2.0
 
 # Parameters
 nc: 80 # number of classes
