@@ -16,6 +16,7 @@ from ultralytics.utils.mla_hbg import (TaskAlignedAssigner_hbg,
                                        TaskAlignedAssigner_hbg_with_Scale)
 from ultralytics.utils.mla_kde import (TaskAlignedAssigner_kde_dynamicK,
                                        TaskAlignedAssigner_kde)
+from ultralytics.utils.mla_dab import (TaskAlignedAssigner_dab)                                       
 from ultralytics.utils.tal import TaskAlignedAssigner
 
 
@@ -66,6 +67,8 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
         _kwargs['score_alpha'] = cfg.get("score_alpha", 0.5)
         _kwargs['score_beta'] = cfg.get("score_beta", 6.0)
         assigner = TaskAlignedAssigner_Scale_abtest(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_dab":
+        assigner = TaskAlignedAssigner_dab(**_kwargs)
     elif assigner_type == "TaskAlignedAssigner_dynamicK":
         _kwargs['min_topk'] = cfg.get("min_topk", 4)
         _kwargs['max_topk'] = cfg.get("max_topk", 10)

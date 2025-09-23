@@ -1,8 +1,12 @@
+import os
+from pathlib import Path
 from ultralytics import YOLO
 import torch
 import platform
 import datetime
 from decimal import Decimal, ROUND_HALF_UP
+from pycocotools.coco import COCO
+from pycocotools.cocoeval import COCOeval
 
 def quantize_to_2dp(value):
     if isinstance(value, (int, float)):
@@ -15,10 +19,20 @@ def quantize_to_2dp(value):
     two_places = Decimal('0.01')
     return str(value_decimal.quantize(two_places, rounding=ROUND_HALF_UP))
 
-def format_metrics(model_path, data_path, name='val/exp', batch=8, imgsz=640):
+def format_metrics(model_path, data_path, anno_json='visdrone_coco.json', batch=8, imgsz=640):
+    name = '_tmp_val'
+    tmp_dir = Path(f'../runs/detect/{name}')
+    pred_json = tmp_dir / 'predictions.json'
     model = YOLO(model_path)
-    metrics = model.val(data=data_path, name=name, batch=batch, imgsz=imgsz)
-    # metrics = model.val(data=data_path, name=name, batch=batch, imgsz=imgsz, save_json=True, conf=0.001, rect=False)
+    metrics = model.val(data=data_path, name=name, batch=batch, imgsz=imgsz, save_json=True, conf=0.001, rect=True)
+
+    if anno_json:
+        anno = COCO(anno_json)  # init annotations api
+        pred = anno.loadRes(str(pred_json))  # init predictions api
+        eval = COCOeval(anno, pred, 'bbox')
+        eval.evaluate()
+        eval.accumulate()
+        eval.summarize()
 
     return_dicts = dict()
 
@@ -64,6 +78,9 @@ def format_metrics(model_path, data_path, name='val/exp', batch=8, imgsz=640):
 
     return_dicts['sys_info'] = "\n".join([f"{k}: {v}" for k, v in sys_info.items()])
     return_dicts['metrics_table'] = "\n".join(lines)
+    for file in os.listdir(tmp_dir):
+        os.remove(tmp_dir / file)
+    tmp_dir.rmdir()
     return return_dicts
 
 def print_info(metrics_dicts):
@@ -76,9 +93,10 @@ def print_info(metrics_dicts):
 if __name__ == "__main__":
     print_info(
     format_metrics(
-        model_path='../runs/detect/visdrone/v12s_assign_scale/weights/best.pt',
+        model_path='../runs/detect/visdrone/v12s/weights/best.pt',
         data_path='../ultralytics/cfg/datasets/VisDrone.yaml',
-        name='val/test_json',
+        anno_json='visdrone_coco.json',
         batch=8,
         imgsz=640,
     ))
+
