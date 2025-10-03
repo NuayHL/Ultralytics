@@ -31,3 +31,4 @@ yolo detect train \
     device=0 \
     save=True \
     name=visdrone/v8s > terminal_log/yolov8s_vis.log 2>&1
+

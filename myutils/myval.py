@@ -17,7 +17,7 @@ def quantize_to_2dp(value):
 
 def format_metrics(model_path, data_path, name='val/exp', batch=8, imgsz=640):
     model = YOLO(model_path)
-    metrics = model.val(data=data_path, name=name, batch=batch, imgsz=imgsz)
+    metrics = model.val(data=data_path, name=name, batch=batch, imgsz=imgsz, save_json=True)
     # metrics = model.val(data=data_path, name=name, batch=batch, imgsz=imgsz, save_json=True, conf=0.001, rect=False)
 
     return_dicts = dict()
@@ -76,9 +76,9 @@ def print_info(metrics_dicts):
 if __name__ == "__main__":
     print_info(
     format_metrics(
-        model_path='../runs/detect/visdrone/v12s_assign_scale/weights/best.pt',
+        model_path='../runs/detect/VisDrone_AB_Search/yolo12n_a2.3_b5.0/weights/best.pt',
         data_path='../ultralytics/cfg/datasets/VisDrone.yaml',
-        name='val/test_json',
-        batch=8,
+        name='VisDrone_AB_Search_val/yolo12n_a2.3_b5.0',
+        batch=16,
         imgsz=640,
     ))

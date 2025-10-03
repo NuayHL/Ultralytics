@@ -1,34 +1,24 @@
 import os
 import cv2
 import json
+
+import numpy as np
 from tqdm import tqdm
 import argparse
 
-# others at first
-classes = ['others', 'pedestrian', 'people', 'bicycle', 'car', 'van', 'truck', 'tricycle', 'awning-tricycle', 'bus', 'motor',
-           ]
+def yolo2coco(image_path, label_path, save_path, classes, use_letterbox=False, input_imgsize=640, area_save=''):
+    print("Loading data from ", image_path, label_path)
+    area_list = list()
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--image_path', default="../../datasets/VisDrone/VisDrone2019-DET-val/images", type=str,
-                    help="path of images")  # 验证集图片路径
-parser.add_argument('--label_path', default="../../datasets/VisDrone/VisDrone2019-DET-val/labels", type=str,
-                    help="path of labels .txt")  # 验证集标签路径
-parser.add_argument('--save_path', type=str, default='visdrone_coco.json',
-                    help="if not split the dataset, give a path to a json file")  # 保存路径
-arg = parser.parse_args()
+    assert os.path.exists(image_path)
+    assert os.path.exists(label_path)
 
-def yolo2coco(arg):
-    print("Loading data from ", arg.image_path, arg.label_path)
-
-    assert os.path.exists(arg.image_path)
-    assert os.path.exists(arg.label_path)
-
-    originImagesDir = arg.image_path
-    originLabelsDir = arg.label_path
+    originImagesDir = image_path
+    originLabelsDir = label_path
     # images dir name
     indexes = os.listdir(originImagesDir)
 
-    dataset = {'categories': [], 'annotations': [], 'images': []}
+    dataset = {'info':{},'categories': [], 'annotations': [], 'images': []}
     for i, cls in enumerate(classes, 0):
         dataset['categories'].append({'id': i, 'name': cls, 'supercategory': 'mark'})
 
@@ -51,6 +41,9 @@ def yolo2coco(arg):
                                   'id': stem,
                                   'width': width,
                                   'height': height})
+        r = 1.0
+        if use_letterbox:
+            r = float(input_imgsize) / max(width, height)
         with open(os.path.join(originLabelsDir, txtFile), 'r') as fr:
             labelList = fr.readlines()
             for label in labelList:
@@ -70,8 +63,11 @@ def yolo2coco(arg):
                 cls_id = int(label[0])
                 width = max(0.0, w * W)
                 height = max(0.0, h * H)
+
+                area_list.append(width * height * r * r)
+
                 dataset['annotations'].append({
-                    'area': width * height,
+                    'area': width * height * r * r,
                     'bbox': [x1, y1, width, height],
                     'category_id': cls_id + 1,
                     'id': ann_id_cnt,
@@ -83,10 +79,26 @@ def yolo2coco(arg):
                 ann_id_cnt += 1
 
     # 保存结果
-    with open(arg.save_path, 'w') as f:
+    with open(save_path, 'w') as f:
         json.dump(dataset, f)
-        print('Save annotation to {}'.format(arg.save_path))
+        print('Save annotation to {}'.format(save_path))
 
+    if area_save:
+        np.save(area_save, np.array(area_list))
 
 if __name__ == "__main__":
-    yolo2coco(arg)
+    # others at first
+    classes = ['others', 'pedestrian', 'people', 'bicycle', 'car', 'van', 'truck', 'tricycle', 'awning-tricycle', 'bus',
+               'motor',
+               ]
+
+    image_path="../../datasets/VisDrone/VisDrone2019-DET-test-val/images"
+    label_path="../../datasets/VisDrone/VisDrone2019-DET-test-val/labels"
+    save_path='visdrone_coco_test_val_letterbox.json'
+    yolo2coco(image_path=image_path,
+              label_path=label_path,
+              save_path=save_path,
+              classes=classes,
+              use_letterbox=True,
+              input_imgsize=640,
+              area_save='visdrone_test_val_area_letterbox.npy')

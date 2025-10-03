@@ -24,7 +24,7 @@ def format_metrics(model_path, data_path, anno_json='visdrone_coco.json', batch=
     tmp_dir = Path(f'../runs/detect/{name}')
     pred_json = tmp_dir / 'predictions.json'
     model = YOLO(model_path)
-    metrics = model.val(data=data_path, name=name, batch=batch, imgsz=imgsz, save_json=True, conf=0.001, rect=True)
+    metrics = model.val(data=data_path, name=name, batch=batch, imgsz=imgsz, save_json=True, conf=0.001)
 
     if anno_json:
         anno = COCO(anno_json)  # init annotations api
@@ -93,9 +93,9 @@ def print_info(metrics_dicts):
 if __name__ == "__main__":
     print_info(
     format_metrics(
-        model_path='../runs/detect/visdrone/v12s/weights/best.pt',
+        model_path='../runs/detect/VisDrone_AB_Search/yolo12n_a2.3_b5.0/weights/best.pt',
         data_path='../ultralytics/cfg/datasets/VisDrone.yaml',
-        anno_json='visdrone_coco.json',
+        anno_json='visdrone_coco_letterbox.json',
         batch=8,
         imgsz=640,
     ))

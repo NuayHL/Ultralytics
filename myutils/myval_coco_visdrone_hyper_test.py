@@ -8,6 +8,7 @@ import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+import yaml
 
 
 class COCOeval_Custom(COCOeval):
@@ -111,6 +112,12 @@ def format_metrics(model_path, data_path, area_rng, area_lbl,
 def print_info(metrics_dicts):
     pass
 
+def load_config(config_path="config.yaml"):
+    """Loads the master configuration file."""
+    print(f"INFO: Loading configuration from {config_path}")
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
 if __name__ == "__main__":
     # custom_area_rng = [
     #     [0 ** 2, 1e5 ** 2],  # 默认的 'all' 范围，保留
@@ -120,31 +127,77 @@ if __name__ == "__main__":
     #     [96 ** 2, 1e5 ** 2],  # 'large'
     # ]
     # custom_area_lbl = ['all', 'tiny', 'small', 'medium', 'large']
+    input_size = 640 * 640
+    _partial = [0]
+    i = 10
+    while i < input_size:
+        _partial.append(i)
+        i *= 2
+    _partial.append(input_size)
+    print(_partial)
 
-    # 目标范围
-    area_min, area_max = 1, 1e5**2  # [1, 1e10]
-    log_min, log_max = np.log2(area_min), np.log2(area_max)
+    custom_area_rng = [[_partial[0], _partial[-1]],]
+    for i in range(len(_partial) - 1):
+        custom_area_rng.append([_partial[i], _partial[i+1]])
+    custom_area_lbl = ['all']
+    for i in range(len(_partial) - 1):
+        custom_area_lbl.append(f"[{_partial[i]},{_partial[i+1]}]")
 
-    # 划分 N 段
-    N = 10
-    log_bins = np.linspace(log_min, log_max, N+1)
+    custom_area_num = len(custom_area_lbl) - 1
 
-    custom_area_rng = [[0, area_max]]  # all
-    custom_area_lbl = ["all"]
+    prefix = 'yolo12n'
+    anno_json = 'visdrone_coco_val_letterbox.json'
+    hyper_test_yaml = '../ab_hyper/config.yaml'
+    coco_result_dir = 'hyper_result'
+    os.makedirs(coco_result_dir, exist_ok=True)
 
-    # 按 log2 均匀划分
-    for i in range(N):
-        lo, hi = 2**log_bins[i], 2**log_bins[i+1]
-        custom_area_rng.append([lo, hi])
-        custom_area_lbl.append(f"log[{log_bins[i]:.1f},{log_bins[i+1]:.1f}]")
+    search_space = load_config(hyper_test_yaml)['search_space']
+    alpha_cfg = search_space['alpha']
+    beta_cfg = search_space['beta']
+    alpha_range_np = np.arange(alpha_cfg['min'], alpha_cfg['max'] + alpha_cfg['step'], alpha_cfg['step'])
+    beta_range_np = np.arange(beta_cfg['min'], beta_cfg['max'] + beta_cfg['step'], beta_cfg['step'])
 
-    print_info(
-    format_metrics(
-        model_path='../runs/detect/visdrone/v12s/weights/best.pt',
-        data_path='../ultralytics/cfg/datasets/VisDrone.yaml',
-        area_rng=custom_area_rng,
-        area_lbl=custom_area_lbl,
-        anno_json='visdrone_coco_val_letterbox.json',
-        batch=8,
-        imgsz=640,
-    ))
+    alpha_range = [f"{alpha:.1f}" for alpha in alpha_range_np]
+    beta_range = [f"{beta:.1f}" for beta in beta_range_np]
+
+    hyper_eval_result = np.zeros((len(alpha_range), len(beta_range), (6 + 2 * custom_area_num)))
+
+    _idx = 0
+    for alpha_idx, alpha in enumerate(alpha_range):
+        for beta_idx, beta in enumerate(beta_range):
+            pred_json = f"../runs/detect/VisDrone_AB_Search_val/{prefix}_a{alpha}_b{beta}/predictions.json"
+            single_npy = f"{coco_result_dir}/{alpha}_{beta}.npy"
+            if os.path.exists(single_npy):
+                print(f'{alpha}_{beta} has been val, skip!')
+                continue
+
+            if not os.path.exists(pred_json):
+                print(f'{alpha}_{beta} has no pred json, skip and set zero')
+                stats_void = np.zeros(6 + 2 * custom_area_num)
+                np.save(single_npy, stats_void)
+                hyper_eval_result[alpha_idx, beta_idx] = stats_void
+                continue
+
+            anno = COCO(anno_json)  # init annotations api
+            pred = anno.loadRes(str(pred_json))  # init predictions api
+            eval = COCOeval_Custom(anno, pred, 'bbox', area_rng=custom_area_rng, area_lbl=custom_area_lbl)
+            eval.evaluate()
+            eval.accumulate()
+            eval.summarize()
+            np.save(single_npy, eval.stats)
+            hyper_eval_result[alpha_idx, beta_idx] = eval.stats
+            _idx += 1
+            print(f"<<<<<<{_idx}", "finished>>>>>>")
+
+    np.save('hyper_eval_result.npy', hyper_eval_result)
+
+    # print_info(
+    # format_metrics(
+    #     model_path='../runs/detect/visdrone/v12s_interpiou/weights/best.pt',
+    #     data_path='../ultralytics/cfg/datasets/VisDrone.yaml',
+    #     area_rng=custom_area_rng,
+    #     area_lbl=custom_area_lbl,
+    #     anno_json='visdrone_coco.json',
+    #     batch=8,
+    #     imgsz=640,
+    # ))
