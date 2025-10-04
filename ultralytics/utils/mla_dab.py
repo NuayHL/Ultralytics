@@ -32,7 +32,7 @@ class TaskAlignedAssigner_dab(nn.Module):
         eps (float): A small value to prevent division by zero.
     """
 
-    def __init__(self, topk: int = 13, num_classes: int = 80, alpha: float = 1.0, beta: float = 6.0, eps: float = 1e-9):
+    def __init__(self, topk: int = 13, num_classes: int = 80, alpha = None, beta = None, eps: float = 1e-9):
         """
         Initialize a TaskAlignedAssigner object with customizable hyperparameters.
 
@@ -46,9 +46,19 @@ class TaskAlignedAssigner_dab(nn.Module):
         super().__init__()
         self.topk = topk
         self.num_classes = num_classes
-        self.alpha = alpha
-        self.beta = beta
+        self.alpha = alpha if alpha else [0.3, 2.5, 2.0, 1.7]
+        self.beta = beta if beta else [0.3, 5.0, 2.0, 1.7]
         self.eps = eps
+
+    def dynamic_alpha(self, x):
+        a, b, c, d = self.alpha
+        x_safe = x + 1e-6
+        return a + (b - a) / (1 + torch.exp(c * (torch.log10(x_safe) - d)))
+
+    def dynamic_beta(self, x):
+        a, b, c, d = self.beta
+        x_safe = x + 1e-6
+        return b + (a - b) / (1 + torch.exp(c * (torch.log10(x_safe) - d)))
 
     @torch.no_grad()
     def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, stride=None, **kwargs):
@@ -189,6 +199,7 @@ class TaskAlignedAssigner_dab(nn.Module):
 
         Returns:
             align_metric (torch.Tensor): Alignment metric combining classification and localization.
+                                        (bs, max_num_obj, h*w)
             overlaps (torch.Tensor): IoU overlaps between predicted and ground truth boxes.
         """
         na = pd_bboxes.shape[-2]
@@ -203,17 +214,15 @@ class TaskAlignedAssigner_dab(nn.Module):
         bbox_scores[mask_gt] = pd_scores[ind[0], :, ind[1]][mask_gt]  # b, max_num_obj, h*w
 
         gt_areas = (gt_bboxes[..., 2]-gt_bboxes[..., 0])*(gt_bboxes[..., 3]-gt_bboxes[..., 1])
-        
-        # Sort gt_areas from largest to smallest for debugging
-        sorted_areas, sorted_indices = torch.sort(gt_areas, descending=True)
-        debug = gt_areas.view(-1).sort()
-
+        gt_areas_safe = torch.clamp(gt_areas, min=1.0)
+        dynamic_alpha = self.dynamic_alpha(gt_areas_safe).unsqueeze(-1)
+        dynamic_beta = self.dynamic_beta(gt_areas_safe).unsqueeze(-1)
         # (b, max_num_obj, 1, 4), (b, 1, h*w, 4)
         pd_boxes = pd_bboxes.unsqueeze(1).expand(-1, self.n_max_boxes, -1, -1)[mask_gt]
         gt_boxes = gt_bboxes.unsqueeze(2).expand(-1, -1, na, -1)[mask_gt]
         overlaps[mask_gt] = self.iou_calculation(gt_boxes, pd_boxes)
 
-        align_metric = bbox_scores.pow(self.alpha) * overlaps.pow(self.beta)
+        align_metric = bbox_scores.pow(dynamic_alpha) * overlaps.pow(dynamic_beta)
         return align_metric, overlaps
 
     def iou_calculation(self, gt_bboxes, pd_bboxes):

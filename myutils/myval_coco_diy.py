@@ -86,7 +86,7 @@ def format_metrics(model_path, data_path, area_rng, area_lbl,
     tmp_dir = Path(f'../runs/detect/{name}')
     pred_json = tmp_dir / 'predictions.json'
     model = YOLO(model_path)
-    metrics = model.val(data=data_path, name=name, batch=batch, imgsz=imgsz, save_json=True, conf=0.001, rect=True)
+    metrics = model.val(data=data_path, name=name, batch=batch, imgsz=imgsz, save_json=True, conf=0.001)
 
     anno = COCO(anno_json)  # init annotations api
     pred = anno.loadRes(str(pred_json))  # init predictions api
@@ -121,22 +121,38 @@ if __name__ == "__main__":
     # ]
     # custom_area_lbl = ['all', 'tiny', 'small', 'medium', 'large']
 
-    # 目标范围
-    area_min, area_max = 1, 1e5**2  # [1, 1e10]
-    log_min, log_max = np.log2(area_min), np.log2(area_max)
+    # # 目标范围
+    # area_min, area_max = 1, 1e5**2  # [1, 1e10]
+    # log_min, log_max = np.log2(area_min), np.log2(area_max)
+    #
+    # # 划分 N 段
+    # N = 10
+    # log_bins = np.linspace(log_min, log_max, N+1)
+    #
+    # custom_area_rng = [[0, area_max]]  # all
+    # custom_area_lbl = ["all"]
+    #
+    # # 按 log2 均匀划分
+    # for i in range(N):
+    #     lo, hi = 2**log_bins[i], 2**log_bins[i+1]
+    #     custom_area_rng.append([lo, hi])
+    #     custom_area_lbl.append(f"log[{log_bins[i]:.1f},{log_bins[i+1]:.1f}]")
 
-    # 划分 N 段
-    N = 10
-    log_bins = np.linspace(log_min, log_max, N+1)
+    input_size = 640 * 640
+    _partial = [0]
+    i = 10
+    while i < input_size:
+        _partial.append(i)
+        i *= 2
+    _partial.append(input_size)
+    print(_partial)
 
-    custom_area_rng = [[0, area_max]]  # all
-    custom_area_lbl = ["all"]
-
-    # 按 log2 均匀划分
-    for i in range(N):
-        lo, hi = 2**log_bins[i], 2**log_bins[i+1]
-        custom_area_rng.append([lo, hi])
-        custom_area_lbl.append(f"log[{log_bins[i]:.1f},{log_bins[i+1]:.1f}]")
+    custom_area_rng = [[_partial[0], _partial[-1]],]
+    for i in range(len(_partial) - 1):
+        custom_area_rng.append([_partial[i], _partial[i+1]])
+    custom_area_lbl = ['all']
+    for i in range(len(_partial) - 1):
+        custom_area_lbl.append(f"[{_partial[i]},{_partial[i+1]}]")
 
     print_info(
     format_metrics(

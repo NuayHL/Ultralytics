@@ -147,15 +147,15 @@ if __name__ == "__main__":
 
     prefix = 'yolo12n'
     anno_json = 'visdrone_coco_val_letterbox.json'
-    hyper_test_yaml = '../ab_hyper/config.yaml'
+    hyper_test_yaml = '../hyper_ab/config.yaml'
     coco_result_dir = 'hyper_result'
     os.makedirs(coco_result_dir, exist_ok=True)
 
     search_space = load_config(hyper_test_yaml)['search_space']
     alpha_cfg = search_space['alpha']
     beta_cfg = search_space['beta']
-    alpha_range_np = np.arange(alpha_cfg['min'], alpha_cfg['max'] + alpha_cfg['step'], alpha_cfg['step'])
-    beta_range_np = np.arange(beta_cfg['min'], beta_cfg['max'] + beta_cfg['step'], beta_cfg['step'])
+    alpha_range_np = np.arange(alpha_cfg['min'], alpha_cfg['max'] + 1e-2, alpha_cfg['step'])
+    beta_range_np = np.arange(beta_cfg['min'], beta_cfg['max'] + 1e-2, beta_cfg['step'])
 
     alpha_range = [f"{alpha:.1f}" for alpha in alpha_range_np]
     beta_range = [f"{beta:.1f}" for beta in beta_range_np]
