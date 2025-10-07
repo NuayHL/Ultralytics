@@ -38,7 +38,9 @@ def initialize_progress(progress_file, grid):
     if os.path.exists(progress_file):
         print(f"INFO: Found existing progress file: {progress_file}. Resuming experiment.")
         with open(progress_file, 'r') as f:
-            return json.load(f)
+            pre_process = json.load(f)
+        progress = {f"a{a}_b{b}": {"alpha": a, "beta": b, "status": "pending"} for a, b in grid}
+        progress.update(pre_process)
     else:
         print("INFO: No progress file found. Starting a new experiment.")
         progress = {f"a{a}_b{b}": {"alpha": a, "beta": b, "status": "pending"} for a, b in grid}

@@ -133,7 +133,7 @@ import math
 #
 #     alpha = math.exp(-log_area * 0.3) * 3 + 0.3
 #     return alpha
-def get_dynamic_alpha(x, a = 0.3, b = 2.5, c = 2.0, d = 1.7):
+def get_dynamic_alpha_(x, a = 0.3, b = 2.5, c = 2.0, d = 1.7):
     """
     y = a + (b-a) / (1 + exp(c*(log10(x)-d)))
     a: 下渐近线 (≈0.3)
@@ -143,9 +143,14 @@ def get_dynamic_alpha(x, a = 0.3, b = 2.5, c = 2.0, d = 1.7):
     """
     return a + (b-a) / (1 + np.exp(c*(np.log10(x)-d)))
 
-def get_dynamic_beta(x, a = 0.3, b = 5, c = 2.0, d = 1.7):
+def get_dynamic_beta_(x, a = 0.3, b = 5, c = 2.0, d = 1.7):
     return b + (a-b) / (1 + np.exp(c*(np.log10(x)-d)))
 
+def get_dynamic_alpha(x, k=-0.1, b=1.3):
+    return k * np.log10(x) + b
+
+def get_dynamic_beta(x, k=0.33, b=3.0):
+    return k * np.log10(x) + b
 
 def plot_topk_ab(alpha_range, beta_range, topk, hyper_eval_result, eval_metric_indices, area_representatives):
     optimal_alphas = []
