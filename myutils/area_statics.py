@@ -204,7 +204,7 @@ def plot_custom_histogram(file_path, custom_bin_edges):
 
         ax.grid(True, which='both', linestyle='--', linewidth=0.5)
         plt.tight_layout()
-        plt.show()
+        plt.savefig('label_temp')
 
     except FileNotFoundError:
         print(f"Error: The file '{file_path}' was not found.")
@@ -217,7 +217,7 @@ if __name__ == '__main__':
 
     plot_histogram_from_npy(path_to_npy_file, num_bins=50)
     percentiles_list = np.arange(0, 101, 10)
-    plot_quantile_histogram(path_to_npy_file, percentiles_list)
-    plot_log_histogram(path_to_npy_file)
+    # plot_quantile_histogram(path_to_npy_file, percentiles_list)
+    # plot_log_histogram(path_to_npy_file)
     plot_custom_histogram(path_to_npy_file, [0, 10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120, 10240,
                                              20480, 40960, 81920, 163840, 327680, 409600])

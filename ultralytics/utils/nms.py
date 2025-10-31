@@ -57,6 +57,7 @@ def non_max_suppression(
         keepi (list[torch.Tensor]): Indices of kept detections if return_idxs=True.
     """
     # Checks
+    # iou_thres = 0.6
     assert 0 <= conf_thres <= 1, f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
     assert 0 <= iou_thres <= 1, f"Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0"
     if isinstance(prediction, (list, tuple)):  # YOLOv8 model in validation model, output = (inference_out, loss_out)

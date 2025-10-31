@@ -20,6 +20,7 @@ from ultralytics.utils.mla_dab import (TaskAlignedAssigner_dab,
                                        TaskAlignedAssigner_dabsep,
                                        TaskAlignedAssigner_dabsepScore,
                                        TaskAlignedAssigner_dabsepScore1)
+from ultralytics.utils.mla_scale import TaskAlignedAssigner_dScale
 from ultralytics.utils.tal import TaskAlignedAssigner
 
 
@@ -28,7 +29,8 @@ ASSIGN_USE_STRIDE = (TaskAlignedAssigner_Scale,
                      TaskAlignedAssigner_Scale_BCE2,
                      TaskAlignedAssigner_hbg_with_Scale,
                      TaskAlignedAssigner_Scale_dynamicK,
-                     TaskAlignedAssigner_Scale_abtest)
+                     TaskAlignedAssigner_Scale_abtest,
+                     TaskAlignedAssigner_dScale,)
 
 # bce1 is a mistake so did not add in it
 ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
@@ -123,6 +125,10 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
     elif assigner_type == "TaskAlignedAssigner_Scale":
         _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
         assigner = TaskAlignedAssigner_Scale(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_dScale":
+        _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+        _kwargs['func_type'] = cfg.get("func_type", "func_1")
+        assigner = TaskAlignedAssigner_dScale(**_kwargs)
     elif assigner_type == "TaskAlignedAssigner_Scale_BCE1":
         _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
         assigner = TaskAlignedAssigner_Scale_BCE1(**_kwargs)
