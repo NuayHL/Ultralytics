@@ -322,3 +322,144 @@ class TaskAlignedAssigner_dabsepScore1(TaskAlignedAssigner):
         align_metric_for_score = bbox_scores.pow(dynamic_alpha) * overlaps.pow(dynamic_beta)
         align_metric = bbox_scores.pow(self.alpha) * overlaps.pow(self.beta)
         return align_metric, overlaps, align_metric_for_score
+
+class CreateFunc:
+    def __init__(self, func_name, *args, **kwargs):
+        self.func_name = func_name
+        self.args = args
+        self.kwargs = kwargs
+
+    def __call__(self, x):
+        return getattr(self, self.func_name)(x, *self.args, **self.kwargs)
+
+    @staticmethod
+    def log_linear(x , k, b):
+        return k * torch.log10(x) + b
+
+    @staticmethod
+    def log_sigmoid(x, a, b ,c ,d):
+        return a + (b - a) / (1 + torch.exp(c * (torch.log10(x) - d)))
+
+    @staticmethod
+    def static(x, a):
+        return a
+
+class TaskAlignedAssigner_dynaAB(TaskAlignedAssigner):
+    def __init__(self, topk: int = 13, num_classes: int = 80, alpha = None, beta = None, eps: float = 1e-9, **kwargs):
+        super().__init__()
+        self.topk = topk
+        self.num_classes = num_classes
+        self.alpha = alpha if alpha else 1.0
+        self.beta = beta if beta else 4.0
+        self.eps = eps
+        self.align_alpha = CreateFunc(kwargs.get("align_alpha", "log_linear"), *kwargs.get("align_alpha_args"))
+        self.is_align_alpha_static = self.align_alpha.func_name == "static"
+        self.align_beta = CreateFunc(kwargs.get("align_beta", "log_linear"), *kwargs.get("align_beta_args"))
+        self.is_align_beta_static = self.align_beta.func_name == "static"
+        self.score_alpha = CreateFunc(kwargs.get("score_alpha", "log_linear"), *kwargs.get("score_alpha_args"))
+        self.is_score_alpha_static = self.score_alpha.func_name == "static"
+        self.score_beta = CreateFunc(kwargs.get("score_beta", "log_linear"), *kwargs.get("score_beta_args"))
+        self.is_score_beta_static = self.score_beta.func_name == "static"
+
+    def get_pos_mask(self, pd_scores, pd_bboxes, gt_labels, gt_bboxes, anc_points, mask_gt):
+        mask_in_gts = self.select_candidates_in_gts(anc_points, gt_bboxes) # (b, max_num_obj, num_anchor=h*w)
+        # Get anchor_align metric, (b, max_num_obj, h*w)
+        align_metric_for_align, overlaps, align_metric_for_score = self.get_box_metrics(pd_scores, pd_bboxes, gt_labels, gt_bboxes, mask_in_gts * mask_gt)
+        # Get topk_metric mask, (b, max_num_obj, h*w)
+        mask_topk = self.select_topk_candidates(align_metric_for_align, topk_mask=mask_gt.expand(-1, -1, self.topk).bool())
+        # Merge all mask to a final mask, (b, max_num_obj, h*w)
+        mask_pos = mask_topk * mask_in_gts * mask_gt
+
+        return mask_pos, align_metric_for_score, overlaps
+
+    def get_box_metrics(self, pd_scores, pd_bboxes, gt_labels, gt_bboxes, mask_gt):
+        na = pd_bboxes.shape[-2]
+        mask_gt = mask_gt.bool()  # b, max_num_obj, h*w
+        overlaps = torch.zeros([self.bs, self.n_max_boxes, na], dtype=pd_bboxes.dtype, device=pd_bboxes.device)
+        bbox_scores = torch.zeros([self.bs, self.n_max_boxes, na], dtype=pd_scores.dtype, device=pd_scores.device)
+
+        ind = torch.zeros([2, self.bs, self.n_max_boxes], dtype=torch.long)  # 2, b, max_num_obj
+        ind[0] = torch.arange(end=self.bs).view(-1, 1).expand(-1, self.n_max_boxes)  # b, max_num_obj
+        ind[1] = gt_labels.squeeze(-1)  # b, max_num_obj
+        # Get the scores of each grid for each gt cls (only for gt's cls)
+        bbox_scores[mask_gt] = pd_scores[ind[0], :, ind[1]][mask_gt]  # b, max_num_obj, h*w
+
+        gt_areas = (gt_bboxes[..., 2]-gt_bboxes[..., 0])*(gt_bboxes[..., 3]-gt_bboxes[..., 1])
+        gt_areas_safe = torch.clamp(gt_areas, min=1.0)
+        dynamic_score_alpha = self.score_alpha(gt_areas_safe) \
+            if self.is_score_alpha_static else self.score_alpha(gt_areas_safe).unsqueeze(-1)
+        dynamic_score_beta = self.score_beta(gt_areas_safe) \
+            if self.is_score_beta_static else self.score_beta(gt_areas_safe).unsqueeze(-1)
+        dynamic_align_alpha = self.align_alpha(gt_areas_safe) \
+            if self.is_align_alpha_static else self.align_alpha(gt_areas_safe).unsqueeze(-1)
+        dynamic_align_beta = self.align_beta(gt_areas_safe) \
+            if self.is_align_beta_static else self.align_beta(gt_areas_safe).unsqueeze(-1)
+
+        # (b, max_num_obj, 1, 4), (b, 1, h*w, 4)
+        pd_boxes = pd_bboxes.unsqueeze(1).expand(-1, self.n_max_boxes, -1, -1)[mask_gt]
+        gt_boxes = gt_bboxes.unsqueeze(2).expand(-1, -1, na, -1)[mask_gt]
+        overlaps[mask_gt] = self.iou_calculation(gt_boxes, pd_boxes)
+
+        align_metric_for_score = bbox_scores.pow(dynamic_score_alpha) * overlaps.pow(dynamic_score_beta)
+        align_metric_for_align = bbox_scores.pow(dynamic_align_alpha) * overlaps.pow(dynamic_align_beta)
+        return align_metric_for_align, overlaps, align_metric_for_score
+
+from .mla_scale import TaskAlignedAssigner_dScale
+class TaskAlignedAssigner_dynamicJoint_v1(TaskAlignedAssigner_dScale):
+    def __init__(self, topk: int = 13, num_classes: int = 80, alpha = None, beta = None, eps: float = 1e-9,
+                 scale_ratio=1.0, func_type='func_1', **kwargs):
+        super().__init__(topk=topk, num_classes=num_classes, alpha=alpha, beta=beta, eps=eps,
+                         scale_ratio=scale_ratio, func_type=func_type)
+        self.alpha = alpha if alpha else 1.0
+        self.beta = beta if beta else 4.0
+        self.align_alpha = CreateFunc(kwargs.get("align_alpha", "log_linear"), *kwargs.get("align_alpha_args"))
+        self.is_align_alpha_static = self.align_alpha.func_name == "static"
+        self.align_beta = CreateFunc(kwargs.get("align_beta", "log_linear"), *kwargs.get("align_beta_args"))
+        self.is_align_beta_static = self.align_beta.func_name == "static"
+        self.score_alpha = CreateFunc(kwargs.get("score_alpha", "log_linear"), *kwargs.get("score_alpha_args"))
+        self.is_score_alpha_static = self.score_alpha.func_name == "static"
+        self.score_beta = CreateFunc(kwargs.get("score_beta", "log_linear"), *kwargs.get("score_beta_args"))
+        self.is_score_beta_static = self.score_beta.func_name == "static"
+
+    def get_pos_mask(self, pd_scores, pd_bboxes, gt_labels, gt_bboxes, anc_points, mask_gt, stride=None):
+        mask_in_gts = self.select_candidates_in_gts(anc_points, gt_bboxes, stride=stride) # (b, max_num_obj, num_anchor=h*w)
+        # Get anchor_align metric, (b, max_num_obj, h*w)
+        align_metric_for_align, overlaps, align_metric_for_score = self.get_box_metrics(pd_scores, pd_bboxes, gt_labels, gt_bboxes, mask_in_gts * mask_gt)
+        # Get topk_metric mask, (b, max_num_obj, h*w)
+        mask_topk = self.select_topk_candidates(align_metric_for_align, topk_mask=mask_gt.expand(-1, -1, self.topk).bool())
+        # Merge all mask to a final mask, (b, max_num_obj, h*w)
+        mask_pos = mask_topk * mask_in_gts * mask_gt
+
+        return mask_pos, align_metric_for_score, overlaps
+
+    def get_box_metrics(self, pd_scores, pd_bboxes, gt_labels, gt_bboxes, mask_gt):
+        na = pd_bboxes.shape[-2]
+        mask_gt = mask_gt.bool()  # b, max_num_obj, h*w
+        overlaps = torch.zeros([self.bs, self.n_max_boxes, na], dtype=pd_bboxes.dtype, device=pd_bboxes.device)
+        bbox_scores = torch.zeros([self.bs, self.n_max_boxes, na], dtype=pd_scores.dtype, device=pd_scores.device)
+
+        ind = torch.zeros([2, self.bs, self.n_max_boxes], dtype=torch.long)  # 2, b, max_num_obj
+        ind[0] = torch.arange(end=self.bs).view(-1, 1).expand(-1, self.n_max_boxes)  # b, max_num_obj
+        ind[1] = gt_labels.squeeze(-1)  # b, max_num_obj
+        # Get the scores of each grid for each gt cls (only for gt's cls)
+        bbox_scores[mask_gt] = pd_scores[ind[0], :, ind[1]][mask_gt]  # b, max_num_obj, h*w
+
+        gt_areas = (gt_bboxes[..., 2]-gt_bboxes[..., 0])*(gt_bboxes[..., 3]-gt_bboxes[..., 1])
+        gt_areas_safe = torch.clamp(gt_areas, min=1.0)
+        dynamic_score_alpha = self.score_alpha(gt_areas_safe) \
+            if self.is_score_alpha_static else self.score_alpha(gt_areas_safe).unsqueeze(-1)
+        dynamic_score_beta = self.score_beta(gt_areas_safe) \
+            if self.is_score_beta_static else self.score_beta(gt_areas_safe).unsqueeze(-1)
+        dynamic_align_alpha = self.align_alpha(gt_areas_safe) \
+            if self.is_align_alpha_static else self.align_alpha(gt_areas_safe).unsqueeze(-1)
+        dynamic_align_beta = self.align_beta(gt_areas_safe) \
+            if self.is_align_beta_static else self.align_beta(gt_areas_safe).unsqueeze(-1)
+
+        # (b, max_num_obj, 1, 4), (b, 1, h*w, 4)
+        pd_boxes = pd_bboxes.unsqueeze(1).expand(-1, self.n_max_boxes, -1, -1)[mask_gt]
+        gt_boxes = gt_bboxes.unsqueeze(2).expand(-1, -1, na, -1)[mask_gt]
+        overlaps[mask_gt] = self.iou_calculation(gt_boxes, pd_boxes)
+
+        align_metric_for_score = bbox_scores.pow(dynamic_score_alpha) * overlaps.pow(dynamic_score_beta)
+        align_metric_for_align = bbox_scores.pow(dynamic_align_alpha) * overlaps.pow(dynamic_align_beta)
+        return align_metric_for_align, overlaps, align_metric_for_score

@@ -94,17 +94,35 @@ class TaskAlignedAssigner_dScale(TaskAlignedAssigner_Scale):
         r: (bs, n_boxes, 1), stride / w 或 stride / h
         返回对应的 scale_ratio
         """
+        r = stride / (expand + self.eps)
         if self.func_type == 'func_1':
-            r = stride / (expand + self.eps)
             return self.func_1(r, self.scale_ratio)
 
         elif self.func_type == 'func_2':
-            r = stride / (expand + self.eps)
             return self.func_2(r, self.scale_ratio)
 
         elif self.func_type == 'func_smooth_1':
-            r = stride / (expand + self.eps)
             return self.func_smooth_1(r, self.scale_ratio)
+
+        elif self.func_type == 'func_gaussian_dip':
+            return self.func_gaussian_dip(r, self.scale_ratio[0], self.scale_ratio[1], sigma=0.1)
+
+        elif self.func_type == 'func_exp_saturate':
+            # 这是另一个备选方案，单调递增
+            # s = r_max * (1 - exp(-a * r))
+            return self.func_exp_saturate(r, self.scale_ratio, a=1.0)
+
+        elif self.func_type == 'func_inverse_smooth':
+            return self.func_inverse_smooth(r, r_min=self.scale_ratio[0], r_max=self.scale_ratio[1],
+                                            k=self.scale_ratio[2])
+
+        if self.func_type == 'func_scale_adaptive':
+            # You can tune these defaults or pass them in __init__
+            # Assuming self.scale_ratio is now a tuple/list: [base, boost]
+            base = self.scale_ratio[0] if isinstance(self.scale_ratio, (list, tuple)) else 1.0
+            boost = self.scale_ratio[1] if isinstance(self.scale_ratio, (list, tuple)) else 0.5
+            gamma = self.scale_ratio[2] if isinstance(self.scale_ratio, (list, tuple)) else 1.5
+            return self.func_scale_adaptive(r, base, boost, gamma)
 
         elif self.func_type == 'static':
             return self.scale_ratio
@@ -149,3 +167,63 @@ class TaskAlignedAssigner_dScale(TaskAlignedAssigner_Scale):
         fall = 1 - 0.25 * sigmoid(b * (r - 2.0))
         return r_max * rise * fall
 
+    @staticmethod
+    def func_gaussian_dip(r, r_max, r_ideal, sigma):
+        """
+        高斯 "凹陷" 函数.
+        在 r_ideal 处 s=0, 在远离 r_ideal 处 s=r_max.
+        """
+        return r_max * (1.0 - 0.5 * torch.exp(-torch.pow(r - r_ideal, 2) / (2 * sigma**2 + 1e-9)))
+
+    @staticmethod
+    def func_exp_saturate(r, r_max, a=1.0):
+        """
+        指数饱和函数 (monotonically increasing)
+        s = r_max * (1 - exp(-a * r))
+        r=0, s=0; r->inf, s->r_max
+        """
+        return r_max * (1.0 - torch.exp(-a * r))
+
+    @staticmethod
+    def func_inverse_smooth(r, r_min, r_max, k):
+        """
+        一个递减的 S 型函数：
+            r 小（大物体）   -> ratio 接近 r_min
+            r 大（小物体）   -> ratio 接近 r_max
+        通过 sigmoid 的递减形式实现。
+
+        ratio(r) = r_min + (r_max - r_min) * (1 - sigmoid(k * (r - 1)))
+
+        参数:
+            r: (bs, n_boxes, 1)
+            r_min: 最小 ratio（建议=1.0）
+            r_max: 最大 ratio（建议≈1.5）
+            k: 控制从 max→min 的过渡速度
+        """
+
+        sig = 1 / (1 + torch.exp(-k * (r - 1)))
+        return r_min + (r_max - r_min) * (1 - sig)
+
+    @staticmethod
+    def func_scale_adaptive(r, scale_base, scale_boost, gamma=2.0):
+        """
+        Adaptive scale compensation based on object-stride ratio.
+
+        Formula:
+            s(r) = scale_base + scale_boost * tanh(gamma * r)
+
+        Motivation:
+            - When r -> 0 (Large objects): s -> scale_base.
+              Maintains a minimal robust margin for localization noise.
+            - When r -> large (Small objects): s -> scale_base + scale_boost.
+              Provides aggressive expansion to counteract quantization error.
+            - Tanh provides a smooth, differentiable transition.
+
+        Args:
+            r (Tensor): ratio = stride / object_size (bs, n_boxes, 1)
+            scale_base (float): Base margin for large objects (e.g., 0.5 or 1.0).
+            scale_boost (float): Max extra margin for tiny objects (e.g., 1.0).
+            gamma (float): Controls the sensitivity/steepness of the transition.
+        """
+        # Use tanh for a smooth saturation from 0 to 1
+        return scale_base + scale_boost * torch.tanh(gamma * r)

@@ -19,7 +19,9 @@ from ultralytics.utils.mla_kde import (TaskAlignedAssigner_kde_dynamicK,
 from ultralytics.utils.mla_dab import (TaskAlignedAssigner_dab,
                                        TaskAlignedAssigner_dabsep,
                                        TaskAlignedAssigner_dabsepScore,
-                                       TaskAlignedAssigner_dabsepScore1)
+                                       TaskAlignedAssigner_dabsepScore1,
+                                       TaskAlignedAssigner_dynaAB,
+                                       TaskAlignedAssigner_dynamicJoint_v1)
 from ultralytics.utils.mla_scale import TaskAlignedAssigner_dScale
 from ultralytics.utils.tal import TaskAlignedAssigner
 
@@ -30,7 +32,8 @@ ASSIGN_USE_STRIDE = (TaskAlignedAssigner_Scale,
                      TaskAlignedAssigner_hbg_with_Scale,
                      TaskAlignedAssigner_Scale_dynamicK,
                      TaskAlignedAssigner_Scale_abtest,
-                     TaskAlignedAssigner_dScale,)
+                     TaskAlignedAssigner_dScale,
+                     TaskAlignedAssigner_dynamicJoint_v1)
 
 # bce1 is a mistake so did not add in it
 ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
@@ -74,6 +77,31 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
         assigner = TaskAlignedAssigner_Scale_abtest(**_kwargs)
     elif assigner_type == "TaskAlignedAssigner_dab":
         assigner = TaskAlignedAssigner_dab(**_kwargs)
+    elif assigner_type == "TaskAlignedAssigner_dynaAB":
+        _kwargs['align_alpha'] = cfg.get("align_alpha", "static")
+        _kwargs['align_alpha_args'] = cfg.get("align_alpha_args", None)
+        _kwargs['align_beta'] = cfg.get("align_beta", "static")
+        _kwargs['align_beta_args'] = cfg.get("align_beta_args", None)
+        _kwargs['score_alpha'] = cfg.get("score_alpha", "static")
+        _kwargs['score_alpha_args'] = cfg.get("score_alpha_args", None)
+        _kwargs['score_beta'] = cfg.get("score_beta", "static")
+        _kwargs['score_beta_args'] = cfg.get("score_beta_args", None)
+        assigner = TaskAlignedAssigner_dynaAB(**_kwargs)
+
+    elif assigner_type == "TaskAlignedAssigner_dynamicJoint_v1":
+        _kwargs['align_alpha'] = cfg.get("align_alpha", "static")
+        _kwargs['align_alpha_args'] = cfg.get("align_alpha_args", None)
+        _kwargs['align_beta'] = cfg.get("align_beta", "static")
+        _kwargs['align_beta_args'] = cfg.get("align_beta_args", None)
+        _kwargs['score_alpha'] = cfg.get("score_alpha", "static")
+        _kwargs['score_alpha_args'] = cfg.get("score_alpha_args", None)
+        _kwargs['score_beta'] = cfg.get("score_beta", "static")
+        _kwargs['score_beta_args'] = cfg.get("score_beta_args", None)
+
+        _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+        _kwargs['func_type'] = cfg.get("func_type", "func_1")
+        assigner = TaskAlignedAssigner_dynamicJoint_v1(**_kwargs)
+
     elif assigner_type == "TaskAlignedAssigner_dabsep":
         _kwargs['score_alpha'] = cfg.get("score_alpha", 1.0)
         _kwargs['score_beta'] = cfg.get("score_beta", 4.0)

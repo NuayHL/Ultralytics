@@ -8,7 +8,7 @@ import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
-
+import matplotlib.pyplot as plt
 
 class COCOeval_Custom(COCOeval):
     def __init__(self, cocoGt=None, cocoDt=None, iouType='bbox', area_rng=None, area_lbl=None):
@@ -108,8 +108,44 @@ def format_metrics(model_path, data_path, area_rng, area_lbl,
     tmp_dir.rmdir()
     return return_dicts
 
-def print_info(metrics_dicts):
-    pass
+
+
+def plot_ap_per_area(stats, custom_area_rng):
+    """
+    绘制每个面积区间对应的AP折线图（X轴为log尺度）
+    Args:
+        stats: eval.stats (来自 format_metrics)
+        custom_area_rng: 自定义面积区间列表 [[min1, max1], [min2, max2], ...]
+    """
+    # 提取每个区间的面积中心（几何平均更适合 log 坐标）
+    area_centers = [np.sqrt(rng[0] * rng[1]) if rng[0] > 0 else np.sqrt(1 * rng[1]) for rng in custom_area_rng[1:]]  # 跳过第一个总区间
+    # 提取对应的 AP 值
+    ap_values = stats[3 : 3 + len(area_centers)]
+
+    # 保留空位但忽略绘制 -1 值
+    valid_x = []
+    valid_y = []
+    for x, y in zip(area_centers, ap_values):
+        if y != -1:
+            valid_x.append(x)
+            valid_y.append(y)
+
+    # 绘制
+    plt.figure(figsize=(8,5))
+    plt.plot(valid_x, valid_y, marker='o', linestyle='-', color='b', label='AP per area')
+
+    # 设定X轴为对数坐标
+    plt.xscale('log')
+
+    # 设置刻度与标签
+    plt.xticks(area_centers, [f"[{int(r[0])}, {int(r[1])}]" for r in custom_area_rng[1:]], rotation=45, ha='right')
+    plt.xlabel("Area Range (log scale)")
+    plt.ylabel("Average Precision (AP)")
+    plt.title("AP vs Object Area (log scale)")
+    plt.grid(True, which='both', linestyle='--', alpha=0.5)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
 
 if __name__ == "__main__":
     # custom_area_rng = [
@@ -154,8 +190,7 @@ if __name__ == "__main__":
     for i in range(len(_partial) - 1):
         custom_area_lbl.append(f"[{_partial[i]},{_partial[i+1]}]")
 
-    print_info(
-    format_metrics(
+    stats = format_metrics(
         model_path='../runs/detect/visdrone/v12s/weights/best.pt',
         data_path='../ultralytics/cfg/datasets/VisDrone.yaml',
         area_rng=custom_area_rng,
@@ -163,4 +198,7 @@ if __name__ == "__main__":
         anno_json='visdrone_coco_val_letterbox.json',
         batch=8,
         imgsz=640,
-    ))
+    )['COCO_stats']
+
+    plot_ap_per_area(stats, custom_area_rng)
+
