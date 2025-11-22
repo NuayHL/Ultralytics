@@ -1,0 +1,24 @@
+# Ultralytics YOLO dataset configuration file for AI-TOD
+# Created based on user directory structure
+
+# Dataset root directory
+# Using absolute path based on your shell output for safety
+path: ../datasets/ai-todv2
+
+# Train/Val/Test image directories (relative to 'path')
+# YOLO automatically looks for corresponding labels in '../labels/train' if images are in 'images/train'
+train: images/train
+val: images/val
+test: images/test  # Optional
+
+# Classes configuration
+nc: 8  # number of classes
+names:
+  0: airplane
+  1: bridge
+  2: storage-tank
+  3: ship
+  4: swimming-pool
+  5: vehicle
+  6: person
+  7: wind-mill

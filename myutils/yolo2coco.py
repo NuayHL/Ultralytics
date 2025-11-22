@@ -26,7 +26,9 @@ def yolo2coco(image_path, label_path, save_path, classes, use_letterbox=False, i
     for k, index in enumerate(tqdm(indexes)):
         # 支持 png jpg 格式的图片.
         txtFile = f'{index[:index.rfind(".")]}.txt'
-        stem = index[:index.rfind(".")]
+        base_name = index[:index.rfind(".")]
+        # 处理stem：纯数字字符串转换为整数(去除前导零)，否则保持字符串
+        stem = int(base_name) if base_name.isdigit() else base_name
         # 读取图像的宽和高
         try:
             im = cv2.imread(os.path.join(originImagesDir, index))
@@ -88,17 +90,44 @@ def yolo2coco(image_path, label_path, save_path, classes, use_letterbox=False, i
 
 if __name__ == "__main__":
     # others at first
-    classes = ['others', 'pedestrian', 'people', 'bicycle', 'car', 'van', 'truck', 'tricycle', 'awning-tricycle', 'bus',
-               'motor',
-               ]
+    # classes = ['others', 'pedestrian', 'people', 'bicycle', 'car', 'van', 'truck', 'tricycle', 'awning-tricycle', 'bus',
+    #            'motor',
+    #            ]
 
-    image_path="../../datasets/VisDrone/VisDrone2019-DET-test-val/images"
-    label_path="../../datasets/VisDrone/VisDrone2019-DET-test-val/labels"
-    save_path='visdrone_coco_test_val_letterbox.json'
+    classes = [
+        "others",
+        "aeroplane",
+        "bicycle",
+        "bird",
+        "boat",
+        "bottle",
+        "bus",
+        "car",
+        "cat",
+        "chair",
+        "cow",
+        "diningtable",
+        "dog",
+        "horse",
+        "motorbike",
+        "person",
+        "pottedplant",
+        "sheep",
+        "sofa",
+        "train",
+        "tvmonitor"
+    ]
+
+    # image_path="../../datasets/VisDrone/VisDrone2019-DET-test-val/images"
+    # label_path="../../datasets/VisDrone/VisDrone2019-DET-test-val/labels"
+
+    image_path="../../datasets/VOC/images/test2007"
+    label_path="../../datasets/VOC/labels/test2007"
+    save_path='voc_coco_test_letterbox.json'
     yolo2coco(image_path=image_path,
               label_path=label_path,
               save_path=save_path,
               classes=classes,
               use_letterbox=True,
               input_imgsize=640,
-              area_save='visdrone_test_val_area_letterbox.npy')
+              area_save='voc_test_area_letterbox.npy')
