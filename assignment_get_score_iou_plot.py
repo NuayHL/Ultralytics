@@ -14,7 +14,7 @@ import os
 import pickle
 import matplotlib.pyplot as plt
 from pathlib import Path
-
+from scipy.stats import pearsonr
 import numpy as np
 
 from ultralytics.engine.validator import BaseValidator
@@ -86,6 +86,184 @@ def plot_score_iou_from_pkl(pkl_path, conf_threshold=0.001, output_path=None):
         output_path = pkl_path.with_name("score_iou_plot.png")
 
     _draw_score_iou_plot(before_nms, after_nms, conf_threshold, output_path)
+
+
+def compute_score_iou_curve(pkl_path, num_bins=20):
+    """
+    Compute the average IoU for each score bin.
+    """
+    with open(pkl_path, 'rb') as f:
+        data = pickle.load(f)
+
+    # Use data BEFORE NMS usually creates the best alignment visualization
+    # But AFTER NMS reflects the final output.
+    # Let's use 'after_nms' as it directly relates to mAP.
+    # You can switch to 'before_nms' if you want to analyze the raw head output.
+    raw_data = data.get('after_nms', [])
+
+    if not raw_data:
+        return None, None, 0.0
+
+    data_np = np.array(raw_data)
+    scores = data_np[:, 0]
+    ious = data_np[:, 1]
+
+    # 1. Calculate Pearson Correlation
+    pcc, _ = pearsonr(scores, ious)
+
+    # 2. Binning
+    bin_edges = np.linspace(0, 1, num_bins + 1)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+    # Digitize scores to find which bin they belong to
+    bin_indices = np.digitize(scores, bin_edges) - 1
+
+    avg_ious = []
+    valid_centers = []
+
+    for i in range(num_bins):
+        # Get IoUs for samples in this score bin
+        bin_ious = ious[bin_indices == i]
+        if len(bin_ious) > 0:
+            avg_ious.append(np.mean(bin_ious))
+            valid_centers.append(bin_centers[i])
+
+    return valid_centers, avg_ious, pcc
+
+def plot_comparison_curves(baseline_pkl, improved_pkl, output_path):
+    """
+    Plot comparison curves for Baseline vs Improved model.
+    """
+    # Compute data
+    base_x, base_y, base_pcc = compute_score_iou_curve(baseline_pkl)
+    imp_x, imp_y, imp_pcc = compute_score_iou_curve(improved_pkl)
+
+    plt.figure(figsize=(8, 8))
+
+    # Plot Baseline
+    if base_x:
+        plt.plot(base_x, base_y, 'b--o', label=f'Baseline (PCC={base_pcc:.3f})', linewidth=2, markersize=6, alpha=0.7)
+
+    # Plot Improved
+    if imp_x:
+        plt.plot(imp_x, imp_y, 'r-s', label=f'Ours (PCC={imp_pcc:.3f})', linewidth=3, markersize=6)
+
+    # Plot Reference Line (Ideal Alignment)
+    plt.plot([0, 1], [0, 1], 'k:', label='Ideal Alignment (y=x)', alpha=0.5)
+
+    plt.title('Score-IoU Alignment Analysis', fontsize=14)
+    plt.xlabel('Classification Score (Confidence)', fontsize=12)
+    plt.ylabel('Average IoU of Matched Boxes', fontsize=12)
+    plt.legend(fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.xlim(0, 1)
+    plt.ylim(0, 1)
+
+    # Add text for improvement
+    if base_pcc and imp_pcc:
+        improv = (imp_pcc - base_pcc)
+        plt.text(0.05, 0.85, f'Correlation Gain: +{improv:.3f}', transform=plt.gca().transAxes,
+                 fontsize=12, bbox=dict(facecolor='white', alpha=0.8, edgecolor='red'))
+
+    plt.tight_layout()
+    output_path = Path(output_path)
+    plt.savefig(output_path, dpi=300)
+    print(f"Comparison plot saved to {output_path}")
+
+
+def plot_multi_experiment_curves(experiments, output_path):
+    """
+    Plot comparison curves for multiple experiments.
+
+    Args:
+        experiments (dict): A dictionary where keys are legend labels and
+                            values are paths to .pkl files.
+                            The FIRST item is treated as the Baseline.
+                            Example:
+                            {
+                                'Baseline': 'path/to/base.pkl',
+                                'Method A': 'path/to/A.pkl',
+                                'Method A+B': 'path/to/AB.pkl'
+                            }
+        output_path (str): Path to save the figure.
+    """
+
+    # Define style cycles for plotting
+    # Colors: Blue (base), Red, Green, Orange, Purple, Brown
+    colors = ['#1f77b4', '#d62728', '#2ca02c', '#ff7f0e', '#9467bd', '#8c564b']
+    # Markers: Circle, Square, Triangle, Diamond, Cross, Plus
+    markers = ['o', 's', '^', 'D', 'X', 'P']
+
+    plt.figure(figsize=(9, 9))
+
+    # Store baseline PCC for gain calculation
+    baseline_pcc = None
+
+    for idx, (label_name, pkl_path) in enumerate(experiments.items()):
+        # 1. Compute data
+        x, y, pcc = compute_score_iou_curve(pkl_path)
+
+        if not x:
+            print(f"Warning: No data found for {label_name}, skipping.")
+            continue
+
+        # 2. Determine styles
+        color = colors[idx % len(colors)]
+        marker = markers[idx % len(markers)]
+
+        # Special style for Baseline (Index 0): Dashed line, lower alpha
+        if idx == 0:
+            linestyle = '--'
+            linewidth = 2
+            alpha = 0.7
+            baseline_pcc = pcc
+            legend_label = f'{label_name} (PCC={pcc:.3f})'
+        else:
+            # Style for Improved Methods: Solid line, thicker
+            linestyle = '-'
+            linewidth = 3
+            alpha = 1.0
+
+            # Calculate Gain relative to Baseline
+            gain_str = ""
+            if baseline_pcc is not None:
+                diff = pcc - baseline_pcc
+                sign = "+" if diff >= 0 else ""
+                gain_str = f", {sign}{diff:.3f}"
+
+            legend_label = f'{label_name} (PCC={pcc:.3f}{gain_str})'
+
+        # 3. Plot
+        plt.plot(x, y,
+                 color=color,
+                 linestyle=linestyle,
+                 marker=marker,
+                 linewidth=linewidth,
+                 markersize=6,
+                 label=legend_label,
+                 alpha=alpha)
+
+    # Plot Reference Line (Ideal Alignment)
+    plt.plot([0, 1], [0, 1], 'k:', label='Ideal Alignment (y=x)', alpha=0.4, linewidth=1.5)
+
+    # Graph decorations
+    plt.title('Score-IoU Alignment Analysis (Multi-Experiment)', fontsize=15)
+    plt.xlabel('Classification Score (Confidence)', fontsize=13)
+    plt.ylabel('Average IoU of Matched Boxes', fontsize=13)
+
+    # Legend location
+    plt.legend(fontsize=11, loc='upper left', framealpha=0.9, edgecolor='gray')
+
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.xlim(0, 1)
+    plt.ylim(0, 1)
+
+    plt.tight_layout()
+
+    # Save
+    output_path = Path(output_path)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    print(f"Comparison plot saved to {output_path}")
 
 
 def val_with_record(model_path, dataset_path, dir_name, project_path='runs_assignment', conf_threshold=0.001):
@@ -396,23 +574,45 @@ def val_with_record(model_path, dataset_path, dir_name, project_path='runs_assig
             )
     
     model = YOLO(model_path)
-    model.val(data=dataset_path, name=dir_name, project=project_path, validator=DetectionValidatorWithSaveScoreIou)
+    model.val(data=dataset_path, name=dir_name, conf=conf_threshold, project=project_path, validator=DetectionValidatorWithSaveScoreIou)
 
 
 if __name__ == "__main__":
 
-    model_path = "runs/detect/visdrone/v12s_assign_scale/weights/best.pt"
+    model_path = "runs/detect/visdrone/v12s/weights/best.pt"
     dataset_path = "VisDrone.yaml"
-    dir_name = "yolo12s_assign_scale_visdrone"
-    project_path = "runs_assignment"
+    dir_name = "v12s_conf_0.25"
+    project_path = "runs_assignment_temp"
+    conf_threshold = 0.25
 
-    val_with_record(model_path=model_path,
-                    dataset_path=dataset_path,
-                    dir_name=dir_name,
-                    project_path=project_path)
+    # val_with_record(model_path=model_path,
+    #                 dataset_path=dataset_path,
+    #                 dir_name=dir_name,
+    #                 project_path=project_path,
+    #                 conf_threshold=conf_threshold,)
 
     # plot_score_iou_from_pkl(pkl_path=f"{project_path}/{dir_name}/score_iou_data.pkl",
-    #                         conf_threshold=0.001,
+    #                         conf_threshold=conf_threshold,
     #                         output_path=f"{project_path}/{dir_name}/score_iou_plot.png")
+
+    plot_comparison_curves("runs_assignment/v12s/score_iou_data.pkl",
+                           "runs_assignment/v12s_scale_a1_b4/score_iou_data.pkl",
+                           output_path="runs_assignment/v12s_scale_a1_b4/score_iou_comparison_plot.png")
+
+    from assignment_utils import load_hyper_pair
+
+    alpha_range, beta_range = load_hyper_pair("ab_hyper/config.yaml", None)
+
+
+    # 定义实验字典，注意：把 Baseline 放在第一个位置！
+    # Define your experiments dict. NOTE: Put Baseline FIRST!
+    experiments_config = {
+        "v12s": "runs_assignment/v12s/score_iou_data.pkl",
+        "v12s_a1_b4": "runs_assignment/v12s_a1_b4/score_iou_data.pkl",
+        "v12s_scale_a1_b4" : "runs_assignment/v12s_scale_a1_b4/score_iou_data.pkl",
+    }
+
+    plot_multi_experiment_curves(experiments_config, "multi_experiment_alignment.png")
+
 
 

@@ -2200,9 +2200,5 @@ class TaskAlignedAssigner_Scale_dynamicK(TaskAlignedAssigner):
         bbox_deltas = torch.cat((xy_centers[None] - lt, rb - xy_centers[None]), dim=2).view(bs, n_boxes, n_anchors, -1)
         return bbox_deltas.amin(3).gt_(stride * self.scale_ratio)
 
-class SimOTA(nn.Module):
-    def __init__(self):
-        super().__init__()
-        pass
 
 

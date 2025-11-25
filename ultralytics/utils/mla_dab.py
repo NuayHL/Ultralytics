@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .metrics import bbox_iou
+from .metrics import bbox_iou, bbox_iou_ext
 from . import LOGGER, colorstr
 from .tal import TaskAlignedAssigner
 
@@ -463,3 +463,18 @@ class TaskAlignedAssigner_dynamicJoint_v1(TaskAlignedAssigner_dScale):
         align_metric_for_score = bbox_scores.pow(dynamic_score_alpha) * overlaps.pow(dynamic_score_beta)
         align_metric_for_align = bbox_scores.pow(dynamic_align_alpha) * overlaps.pow(dynamic_align_beta)
         return align_metric_for_align, overlaps, align_metric_for_score
+
+class TaskAlignedAssigner_VaryingIoU(TaskAlignedAssigner):
+    def __init__(self, topk: int = 13, num_classes: int = 80, alpha = None, beta = None, eps: float = 1e-9, **kwargs):
+        super().__init__()
+        self.topk = topk
+        self.num_classes = num_classes
+        self.alpha = alpha if alpha else 1.0
+        self.beta = beta if beta else 4.0
+        self.eps = eps
+        self.iou_type = kwargs.get("iou_type", "CIoU")
+        self.iou_kwargs = kwargs.get("iou_kwargs", {})
+
+    def iou_calculation(self, gt_bboxes, pd_bboxes):
+        return bbox_iou_ext(gt_bboxes, pd_bboxes, xywh=False,
+                            iou_type=self.iou_type, iou_kargs=self.iou_kwargs).squeeze(-1).clamp_(0)

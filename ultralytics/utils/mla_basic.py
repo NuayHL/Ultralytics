@@ -66,19 +66,19 @@ class FCOSAssigner(nn.Module):
         # anc_points: (n_anchors, 2) -> (1, n_anchors, 2)
         anchors_expand = anc_points.unsqueeze(0)
 
-        for b in range(self.bs):
+        for bs in range(self.bs):
             # Get valid GTs
-            valid_mask = mask_gt[b].squeeze(-1).bool()
+            valid_mask = mask_gt[bs].squeeze(-1).bool()
             if not valid_mask.any():
                 continue
             
             # (n_gt, 4)
-            curr_gt_bboxes = gt_bboxes[b][valid_mask]
-            curr_gt_labels = gt_labels[b][valid_mask].long()
+            curr_gt_bboxes = gt_bboxes[bs][valid_mask]
+            curr_gt_labels = gt_labels[bs][valid_mask].long()
             n_gt = curr_gt_bboxes.shape[0]
 
             if stride is not None:
-                curr_stride = stride[b].squeeze(-1) # (n_anchors,)
+                curr_stride = stride[bs].squeeze(-1) # (n_anchors,)
             else:
                 curr_stride = torch.ones(self.n_anchors, device=device)
 
@@ -141,23 +141,23 @@ class FCOSAssigner(nn.Module):
 
             if pos_mask.any():
                 # Fill targets
-                fg_mask[b] = pos_mask
+                fg_mask[bs] = pos_mask
                 
                 assigned_gt_idx = min_gt_idxs[pos_mask]
-                target_gt_idx[b, pos_mask] = assigned_gt_idx
+                target_gt_idx[bs, pos_mask] = assigned_gt_idx
                 
                 # Labels
                 assigned_labels = curr_gt_labels[assigned_gt_idx].squeeze(-1)
-                target_labels[b, pos_mask] = assigned_labels
+                target_labels[bs, pos_mask] = assigned_labels
                 
                 # BBoxes
                 assigned_bboxes = curr_gt_bboxes[assigned_gt_idx]
-                target_bboxes[b, pos_mask] = assigned_bboxes
+                target_bboxes[bs, pos_mask] = assigned_bboxes
                 
                 # Scores (Static assignment usually gives hard 1.0 target)
                 # In FCOS, there is also a 'centerness' target, but for this interface,
                 # we usually put 1.0 into the classification target.
-                target_scores[b, pos_mask, assigned_labels] = 1.0
+                target_scores[bs, pos_mask, assigned_labels] = 1.0
 
         return target_labels, target_bboxes, target_scores, fg_mask, target_gt_idx
 
@@ -329,6 +329,8 @@ class SimOTAAssigner(nn.Module):
                 target_scores_b.scatter_(1, gt_matched_classes.unsqueeze(1), 1.0)
                 # Multiply by IoU as per source logic for soft targets?
                 # Source: cls_target = ... * pred_ious_this_matching.unsqueeze(-1)
+                # -------------------------------------------------------------
+                # # Multiply by IoU as per source logic for soft targets
                 target_scores_b = target_scores_b * pred_ious_this_matching.unsqueeze(-1)
 
                 # ----------------------use TAL's normalization-------------------------------

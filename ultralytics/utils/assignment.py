@@ -21,12 +21,13 @@ from ultralytics.utils.mla_dab import (TaskAlignedAssigner_dab,
                                        TaskAlignedAssigner_dabsepScore,
                                        TaskAlignedAssigner_dabsepScore1,
                                        TaskAlignedAssigner_dynaAB,
-                                       TaskAlignedAssigner_dynamicJoint_v1)
+                                       TaskAlignedAssigner_dynamicJoint_v1,
+                                       TaskAlignedAssigner_VaryingIoU)
 from ultralytics.utils.mla_scale import TaskAlignedAssigner_dScale
 from ultralytics.utils.tal import TaskAlignedAssigner
-from ultralytics.utils.mla_basic import MaxIoUAssigner, SimOTAAssigner
+from ultralytics.utils.mla_basic import FCOSAssigner, SimOTAAssigner
 
-BASIC_ASSIGNER = [MaxIoUAssigner, SimOTAAssigner]
+BASIC_ASSIGNER = [FCOSAssigner, SimOTAAssigner]
 def IN_BASIC_ASSIGNER(assigner_type: str):
     in_or_not = [assigner_type in str(la) for la in BASIC_ASSIGNER]
     return any(in_or_not)
@@ -98,6 +99,11 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
             _kwargs['score_beta'] = cfg.get("score_beta", "static")
             _kwargs['score_beta_args'] = cfg.get("score_beta_args", None)
             assigner = TaskAlignedAssigner_dynaAB(**_kwargs)
+
+        elif assigner_type == "TaskAlignedAssigner_VaryingIoU":
+            _kwargs['iou_type'] = cfg.get("iou_type", "CIoU")
+            _kwargs['iou_kwargs'] = cfg.get("iou_kwargs", {})
+            assigner = TaskAlignedAssigner_VaryingIoU(**_kwargs)
 
         elif assigner_type == "TaskAlignedAssigner_dynamicJoint_v1":
             _kwargs['align_alpha'] = cfg.get("align_alpha", "static")
