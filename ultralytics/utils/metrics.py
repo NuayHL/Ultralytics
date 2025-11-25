@@ -185,6 +185,37 @@ def bbox_iou_ext(
         w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
         w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
 
+    if iou_type == "SimD":
+        # Retrieve hyperparameters from iou_kargs, default to 6.13 and 4.59
+        sim_x = iou_kargs.get("sim_x", 6.13)
+        sim_y = iou_kargs.get("sim_y", 4.59)
+
+        # Calculate center coordinates
+        # Note: We calculate them from b1_x1... to ensure consistency regardless of 'xywh' input flag
+        cx1 = (b1_x1 + b1_x2) / 2
+        cy1 = (b1_y1 + b1_y2) / 2
+        cx2 = (b2_x1 + b2_x2) / 2
+        cy2 = (b2_y1 + b2_y2) / 2
+
+        # Similarity Location Calculation
+        # Formula: sqrt( ((x1-x2) / ((w1+w2)/sim_x))^2 + ((y1-y2) / ((h1+h2)/sim_y))^2 )
+        # Added eps to denominators for stability
+        sem_num_loc = ((cx1 - cx2) / ((w1 + w2) / sim_x + eps)).pow(2) + \
+                      ((cy1 - cy2) / ((h1 + h2) / sim_y + eps)).pow(2)
+        sim_loc = torch.sqrt(sem_num_loc + eps)
+
+        # Similarity Shape Calculation
+        # Formula: sqrt( ((w1-w2) / ((w1+w2)/sim_x))^2 + ((h1-h2) / ((h1+h2)/sim_y))^2 )
+        sem_num_shape = ((w1 - w2) / ((w1 + w2) / sim_x + eps)).pow(2) + \
+                        ((h1 - h2) / ((h1 + h2) / sim_y + eps)).pow(2)
+        sim_shape = torch.sqrt(sem_num_shape + eps)
+
+        # Final Sim Metric
+        # The formula uses exp(-(sim_loc + sim_shape))
+        # Depending on implementation, sometimes a coefficient is added (e.g., 1 * sim_loc),
+        # but the snippet provided used 1.
+        return torch.exp(-(sim_loc + sim_shape))
+
     # Intersection area
     inter = (b1_x2.minimum(b2_x2) - b1_x1.maximum(b2_x1)).clamp_(0) * (
         b1_y2.minimum(b2_y2) - b1_y1.maximum(b2_y1)
@@ -232,7 +263,10 @@ def bbox_iou_ext(
             return iou - rho2 / c2  # DIoU
         c_area = cw * ch + eps  # convex area
         return iou - (c_area - union) / c_area  # GIoU https://arxiv.org/pdf/1902.09630.pdf
-    return iou  # IoU
+    if iou_type == "IoU":
+        return iou  # IoU
+    else:
+        raise ValueError(f"Invalid iou_type {iou_type}.")
 
 
 def mask_iou(mask1: torch.Tensor, mask2: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:
