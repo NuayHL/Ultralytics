@@ -247,6 +247,42 @@ def bbox_iou_ext(
         iou_i = inter_i / union_i
         return iou + iou_i - 1
 
+    if iou_type == "Hausdorff":
+        # Implementation of HIoU (Hausdorff-IoU)
+        # Formula: HIoU = IoU - (Hausdorff_Distance^2 / Convex_Diagonal^2)
+
+        # 1. Calculate the smallest enclosing box (Convex Hull) dimensions
+        # This is needed for Normalization (to make the metric scale-invariant)
+        # cw = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)  # convex width
+        # ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)  # convex height
+        # c2 = cw.pow(2) + ch.pow(2) + eps  # convex diagonal squared
+
+        w2 = b2_x2 - b2_x1 + eps
+        h2 = b2_y2 - b2_y1 + eps
+        d2 = w2.pow(2) + h2.pow(2)
+
+        # 2. Calculate squared Euclidean distances between corresponding corners
+        # Ideally, we want to align TL with TL, BR with BR, etc.
+        # Top-Left (x1, y1)
+        d_tl = (b1_x1 - b2_x1).pow(2) + (b1_y1 - b2_y1).pow(2)
+        # Top-Right (x2, y1)
+        d_tr = (b1_x2 - b2_x2).pow(2) + (b1_y1 - b2_y1).pow(2)
+        # Bottom-Right (x2, y2)
+        d_br = (b1_x2 - b2_x2).pow(2) + (b1_y2 - b2_y2).pow(2)
+        # Bottom-Left (x1, y2)
+        d_bl = (b1_x1 - b2_x1).pow(2) + (b1_y2 - b2_y2).pow(2)
+
+        # 3. Hausdorff Distance Squared (Approx. for AABBs)
+        # The Hausdorff distance is determined by the specific corner that is furthest away.
+        # This captures the "worst-case" geometric misalignment.
+        d_h_sq = torch.stack([d_tl, d_tr, d_br, d_bl], dim=-1).max(dim=-1)[0]
+
+        # 4. Return HIoU
+        # This acts as a drop-in replacement for DIoU/CIoU.
+        # If perfect match: IoU=1, d_h=0 -> returns 1.0
+        # If far away: IoU=0, d_h -> max -> returns negative value (penalty).
+        return torch.exp( - 2.5 * d_h_sq / d2 )
+
     if iou_type == "SIoU":
         cw = torch.max(b1_x2, b2_x2) - torch.min(b1_x1, b2_x1)  # convex width
         ch = torch.max(b1_y2, b2_y2) - torch.min(b1_y1, b2_y1)  # convex height
