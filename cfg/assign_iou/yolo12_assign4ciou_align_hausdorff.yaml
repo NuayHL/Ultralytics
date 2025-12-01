@@ -12,7 +12,10 @@ beta: 6.0
 score_iou_type: CIoU
 score_iou_kwargs: {}
 align_iou_type: Hausdorff
-align_iou_kwargs: {}
+align_iou_kwargs:
+  lambda1: 2.5
+  lambda2: 1.0
+
 
 # Parameters
 nc: 80 # number of classes

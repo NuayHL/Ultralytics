@@ -5,15 +5,16 @@
 # Task docs: https://docs.ultralytics.com/tasks/detect
 
 # Assigner Para
-assigner_type: 'TaskAlignedAssigner'
+assigner_type: 'TaskAlignedAssigner_VaryingIoU_Sep'
 topk: 10
 alpha: 0.5
 beta: 6.0
-
-iou_type: 'InterpIoU'
-iou_kargs:
-  interp_coe: 0.98
-
+score_iou_type: CIoU
+score_iou_kwargs: {}
+align_iou_type: Hausdorff
+align_iou_kwargs:
+  lambda1: 1.0
+  lambda2: 1.0
 
 # Parameters
 nc: 80 # number of classes

@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import torch
 
 STEP=100
-BBOX_SIZE = [60, 60]
-GT_BBOX = torch.tensor([70, 70, BBOX_SIZE[0], BBOX_SIZE[1]]).expand(STEP+1, -1)
+BBOX_SIZE = [5, 5]
+GT_BBOX = torch.tensor([120, 140, BBOX_SIZE[0], BBOX_SIZE[1]]).expand(STEP+1, -1)
 START_PRED_BBOX = torch.tensor([130, 150, BBOX_SIZE[0], BBOX_SIZE[1]]).expand(STEP+1, -1)
 coe = torch.tensor([[float(i)/STEP] for i in range(STEP+1)])
 INTERP_BBOX = GT_BBOX * coe + START_PRED_BBOX * (1 - coe)
@@ -275,12 +275,14 @@ def plot_iou_contour_multi_values(iou_list: list, contour_values: list = None,
 if __name__ == "__main__":
     # 原有的曲线图
     plot_iou_curve([["GIoU", "GIoU",{}],
-                    ["DIoU", "DIoU",{}],
-                    ["SIoU", "SIoU",{}],
+                    # ["DIoU", "DIoU",{}],
+                    ["CIoU_with_alpha", "CIoU",{"alpha":0.5}],
+                    ["CIoU", "CIoU",{}],
                     ["PIoU", "PIoU",{}],
                     ["InterpIoU", "InterpIoU",{"interp_coe": 0.98}],
-                    ["D_InterpIoU", "D_InterpIoU", {"lv":0.9, "hv":0.98}],
+                    # ["D_InterpIoU", "D_InterpIoU", {"lv":0.9, "hv":0.98}],
                     ["Hausdorff", "Hausdorff", {}],
+                    ["AlphaIoU", "AlphaIoU", {"alpha": 0.5}],
                     ["IoU", "IoU" ,{}],
                     ["SimD1", "SimD",{"sim_x":6.13, "sim_y":4.59}],])
     

@@ -247,6 +247,9 @@ def bbox_iou_ext(
         iou_i = inter_i / union_i
         return iou + iou_i - 1
 
+    if iou_type == "AlphaIoU":
+        return torch.pow(iou, iou_kargs.get("alpha", 0.5))
+
     if iou_type == "Hausdorff":
         # Implementation of HIoU (Hausdorff-IoU)
         # Formula: HIoU = IoU - (Hausdorff_Distance^2 / Convex_Diagonal^2)
@@ -256,6 +259,8 @@ def bbox_iou_ext(
         # cw = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)  # convex width
         # ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)  # convex height
         # c2 = cw.pow(2) + ch.pow(2) + eps  # convex diagonal squared
+        lambda1 = iou_kargs.get("lambda1", 1)
+        lambda2 = iou_kargs.get("lambda2", 1)
 
         w2 = b2_x2 - b2_x1 + eps
         h2 = b2_y2 - b2_y1 + eps
@@ -281,7 +286,7 @@ def bbox_iou_ext(
         # This acts as a drop-in replacement for DIoU/CIoU.
         # If perfect match: IoU=1, d_h=0 -> returns 1.0
         # If far away: IoU=0, d_h -> max -> returns negative value (penalty).
-        return torch.exp( - 2.5 * d_h_sq / d2 )
+        return torch.exp( - lambda1 * d_h_sq / torch.pow(d2, lambda2) )
 
     if iou_type == "SIoU":
         cw = torch.max(b1_x2, b2_x2) - torch.min(b1_x1, b2_x1)  # convex width
@@ -325,6 +330,9 @@ def bbox_iou_ext(
                 v = (4 / math.pi**2) * ((w2 / h2).atan() - (w1 / h1).atan()).pow(2)
                 with torch.no_grad():
                     alpha = v / (v - iou + (1 + eps))
+                if "alpha" in iou_kargs.keys() and iou_kargs.get("alpha") is not None:
+                    _pow_alpha = iou_kargs.get("alpha")
+                    return torch.pow(iou, _pow_alpha) - (torch.pow(rho2 / c2, _pow_alpha) + torch.pow(v * alpha, _pow_alpha))
                 return iou - (rho2 / c2 + v * alpha)  # CIoU
             return iou - rho2 / c2  # DIoU
         c_area = cw * ch + eps  # convex area
