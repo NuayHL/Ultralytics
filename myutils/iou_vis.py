@@ -4,9 +4,10 @@ import matplotlib.pyplot as plt
 import torch
 
 STEP=100
-BBOX_SIZE = [5, 5]
-GT_BBOX = torch.tensor([120, 140, BBOX_SIZE[0], BBOX_SIZE[1]]).expand(STEP+1, -1)
-START_PRED_BBOX = torch.tensor([130, 150, BBOX_SIZE[0], BBOX_SIZE[1]]).expand(STEP+1, -1)
+BBOX_SIZE1 = [2, 2]
+BBOX_SIZE2 = [5, 5]
+GT_BBOX = torch.tensor([120, 140, BBOX_SIZE2[0], BBOX_SIZE2[1]]).expand(STEP+1, -1)
+START_PRED_BBOX = torch.tensor([130, 150, BBOX_SIZE1[0], BBOX_SIZE1[1]]).expand(STEP+1, -1)
 coe = torch.tensor([[float(i)/STEP] for i in range(STEP+1)])
 INTERP_BBOX = GT_BBOX * coe + START_PRED_BBOX * (1 - coe)
 X_RANGE = np.arange(STEP+1)
@@ -14,7 +15,7 @@ X_RANGE = np.arange(STEP+1)
 def plot_iou_curve(iou_list: list):
     iou_values = list()
     for _, iou_type, iou_kwargs in iou_list:
-        iou_values.append(bbox_iou_ext(GT_BBOX, INTERP_BBOX,
+        iou_values.append(bbox_iou_ext(INTERP_BBOX, GT_BBOX,
                                           iou_type=iou_type, iou_kargs=iou_kwargs,
                                           xywh=True).numpy())
 
@@ -30,7 +31,7 @@ def plot_iou_curve(iou_list: list):
     ax.set_xlim(0, 100)
     ax.set_ylim(0, 2)
     plt.legend()
-    plt.show()
+    plt.savefig('iou_curve.png')
 
 
 def plot_iou_contour(iou_list: list, contour_levels: list = None,
@@ -87,7 +88,7 @@ def plot_iou_contour(iou_list: list, contour_levels: list = None,
         ax = axes[row, col]
         
         # 计算IoU值
-        iou_values = bbox_iou_ext(gt_bbox, pred_bboxes,
+        iou_values = bbox_iou_ext(pred_bboxes, gt_bbox,
                                   iou_type=iou_type, iou_kargs=iou_kwargs,
                                   xywh=True).numpy()
         Z = iou_values.reshape(grid_resolution, grid_resolution)
@@ -123,7 +124,7 @@ def plot_iou_contour(iou_list: list, contour_levels: list = None,
         axes[row, col].axis('off')
     
     plt.tight_layout()
-    plt.show()
+    plt.savefig('iou_contour.png')
 
 
 def plot_iou_contour_overlay(iou_list: list, contour_value: float = 0.5,
@@ -275,26 +276,34 @@ def plot_iou_contour_multi_values(iou_list: list, contour_values: list = None,
 if __name__ == "__main__":
     # 原有的曲线图
     plot_iou_curve([["GIoU", "GIoU",{}],
-                    # ["DIoU", "DIoU",{}],
-                    ["CIoU_with_alpha", "CIoU",{"alpha":0.5}],
+                    ["DIoU", "DIoU",{}],
+                    # ["CIoU_with_alpha", "CIoU",{"alpha":0.5}],
                     ["CIoU", "CIoU",{}],
-                    ["PIoU", "PIoU",{}],
-                    ["InterpIoU", "InterpIoU",{"interp_coe": 0.98}],
+                    # ["PIoU", "PIoU",{}],
+                    # ["InterpIoU", "InterpIoU",{"interp_coe": 0.98}],
                     # ["D_InterpIoU", "D_InterpIoU", {"lv":0.9, "hv":0.98}],
+                    # ["l1", "l1", {}],
                     ["Hausdorff", "Hausdorff", {}],
-                    ["AlphaIoU", "AlphaIoU", {"alpha": 0.5}],
+                    # ["AlphaIoU", "AlphaIoU", {"alpha": 0.5}],
                     ["IoU", "IoU" ,{}],
                     ["SimD1", "SimD",{"sim_x":6.13, "sim_y":4.59}],])
     
     # 示例：等高线子图（每种IoU一个子图）
     iou_metrics = [
-        ["IoU", "IoU", {}],
         ["GIoU", "GIoU", {}],
         ["DIoU", "DIoU", {}],
+        # ["CIoU_with_alpha", "CIoU",{"alpha":0.5}],
         ["CIoU", "CIoU", {}],
-        ["SimD", "SimD", {"sim_x": 6.13, "sim_y": 4.59}],
+        # ["PIoU", "PIoU",{}],
+        # ["InterpIoU", "InterpIoU",{"interp_coe": 0.98}],
+        # ["D_InterpIoU", "D_InterpIoU", {"lv":0.9, "hv":0.98}],
+        # ["l1", "l1", {}],
+        ["Hausdorff", "Hausdorff", {}],
+        # ["AlphaIoU", "AlphaIoU", {"alpha": 0.5}],
+        ["IoU", "IoU", {}],
+        ["SimD1", "SimD", {"sim_x": 6.13, "sim_y": 4.59}],
     ]
-    # plot_iou_contour(iou_metrics, bbox_size=(60, 60), grid_range=120)
+    plot_iou_contour(iou_metrics, bbox_size=(60, 60), grid_range=120)
     #
     # 示例：叠加对比单一等高线值
     # plot_iou_contour_overlay(iou_metrics, contour_value=0.5, bbox_size=(60, 60))

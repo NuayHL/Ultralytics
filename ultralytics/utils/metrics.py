@@ -185,6 +185,14 @@ def bbox_iou_ext(
         w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
         w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
 
+    if iou_type == "l1":
+        raw =  (torch.pow(torch.abs(b1_x1 - b2_x1).clamp(min=0), 2) +
+                torch.pow(torch.abs(b1_y1 - b2_y1).clamp(min=0), 2) +
+                torch.pow(torch.abs(b1_x2 - b2_x2).clamp(min=0), 2) +
+                torch.pow(torch.abs(b1_y2 - b2_y2).clamp(min=0), 2) )
+        lambda1 = iou_kargs.get("lambda1", 0.4)
+        return torch.exp( - lambda1 * raw / (w2 * h2 + eps))
+
     if iou_type == "SimD":
         # Retrieve hyperparameters from iou_kargs, default to 6.13 and 4.59
         sim_x = iou_kargs.get("sim_x", 6.13)
