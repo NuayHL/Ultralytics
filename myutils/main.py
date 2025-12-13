@@ -218,7 +218,8 @@ def build_table_block(metrics_table: List[str]) -> dict:
     }
 
 class ExpUpLoader:
-    def __init__(self, exp_path, data_path, extra_tags, token=None, db_id=None, platform_name=None, **kwargs):
+    def __init__(self, exp_path, data_path, extra_tags, token=None, db_id=None, platform_name=None, no_files=False,
+                 **kwargs):
         self.exp_path = Path(exp_path)
         self.data_path = Path(data_path)
 
@@ -245,6 +246,8 @@ class ExpUpLoader:
             imgsz=640
         )
 
+        self.no_files = no_files
+
         if not self.notion_token:
             raise ValueError("No Notion Token found, please set it in yaml file or pass it as parameter")
         if not self.database_id:
@@ -256,8 +259,9 @@ class ExpUpLoader:
     def upload(self):
         page_id = self.create_page()
         self.add_exp_details(page_id)
-        self.file_uploader.upload()
-        self.file_uploader.attach_to_page(page_id=page_id, prefix_name=self.exp_name)
+        if not self.no_files:
+            self.file_uploader.upload()
+            self.file_uploader.attach_to_page(page_id=page_id, prefix_name=self.exp_name)
 
     def create_page(self):
         response = self.notion.pages.create(
@@ -316,11 +320,13 @@ if __name__ == "__main__":
     parser.add_argument('--exp-path', type=str, default='runs/detect/visdrone/v12s', help='Path to experiment directory')
     parser.add_argument('--data-path', type=str, default='ultralytics/cfg/datasets/VisDrone.yaml', help='Path to dataset configuration file')
     parser.add_argument('--extra-tags', nargs='+', default=['v12', 'v12s'], help='Extra tags for the upload (space-separated)')
+    parser.add_argument('--no-files', action='store_true', help='Whether to upload files')
     args = parser.parse_args()
     uploader = ExpUpLoader(
         exp_path=args.exp_path,
         data_path=args.data_path,
         extra_tags=args.extra_tags,
+        no_files=args.no_files
     )
     try:
         uploader.upload()

@@ -529,3 +529,56 @@ class TaskAlignedAssigner_VaryingIoU_Sep(TaskAlignedAssigner):
     def iou_calculation(self, gt_bboxes, pd_bboxes, iou_type=None, iou_kwargs=None):
         return bbox_iou_ext(gt_bboxes, pd_bboxes, xywh=False,
                             iou_type=iou_type, iou_kargs=iou_kwargs).squeeze(-1).clamp_(0)
+
+class TaskAlignedAssigner_VaryingIoU_Sep_Dynamic(TaskAlignedAssigner_VaryingIoU_Sep):
+    def __init__(self, topk: int = 13, num_classes: int = 80, alpha = None, beta = None, eps: float = 1e-9, **kwargs):
+        super().__init__(topk=topk, num_classes=num_classes, alpha=alpha, beta=beta, eps=eps, **kwargs)
+        self.align_iou_type = kwargs.get("align_iou_type", "Hausdorff")
+        self.align_iou_kwargs = kwargs.get("align_iou_kwargs", {})
+        self.score_iou_type = kwargs.get("score_iou_type", "CIoU")
+        self.score_iou_kwargs = kwargs.get("score_iou_kwargs", {})
+
+        self.initial_align_iou_kwargs = self.align_iou_kwargs.copy()
+        self.final_align_iou_kwargs = kwargs.get("final_align_iou_kwargs", {})
+
+    def get_align_iou_kwargs(self, epoch, total_epochs):
+        progress = epoch / max(total_epochs - 1, 1)
+        return {k: self.initial_align_iou_kwargs[k] + (v - self.initial_align_iou_kwargs[k]) * progress for k, v in self.final_align_iou_kwargs.items()}
+
+    def update_align_iou_kwargs(self, new_kwargs):
+        """
+        更新 align_iou_kwargs 参数
+        
+        Args:
+            new_kwargs (dict): 新的 align_iou_kwargs 字典，可以是部分更新
+        """
+        print(f"last align_iou_kwargs: {self.align_iou_kwargs}")
+        if isinstance(new_kwargs, dict):
+            self.align_iou_kwargs.update(new_kwargs)
+        else:
+            self.align_iou_kwargs = new_kwargs
+        print(f"new align_iou_kwargs: {self.align_iou_kwargs}")
+        
+    def update_align_iou_kwargs_by_epoch(self, epoch, total_epochs, update_func=None):
+        """
+        根据训练 epoch 动态更新 align_iou_kwargs
+        
+        Args:
+            epoch (int): 当前 epoch (从0开始)
+            total_epochs (int): 总 epoch 数
+            update_func (callable, optional): 自定义更新函数，接收 (epoch, total_epochs) 并返回新的 kwargs
+                如果为 None，则使用默认的线性更新策略
+                
+        示例:
+            # 自定义更新函数示例：线性更新 alpha 参数
+            def custom_update(epoch, total_epochs):
+                progress = epoch / max(total_epochs - 1, 1)
+                return {'alpha': 0.5 + 0.5 * progress}
+            
+            assigner.update_align_iou_kwargs_by_epoch(epoch, total_epochs, custom_update)
+        """
+        if update_func is not None:
+            new_kwargs = update_func(epoch, total_epochs)
+        else:
+            new_kwargs = self.get_align_iou_kwargs(epoch, total_epochs)
+        self.update_align_iou_kwargs(new_kwargs)

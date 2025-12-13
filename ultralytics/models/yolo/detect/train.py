@@ -244,3 +244,92 @@ class DetectionTrainer(BaseTrainer):
         max_num_obj = max(len(label["cls"]) for label in train_dataset.labels) * 4  # 4 for mosaic augmentation
         del train_dataset  # free memory
         return super().auto_batch(max_num_obj)
+
+
+class DetectionTrainerWithDynamicAssigner(DetectionTrainer):
+    """
+    支持动态更新 TaskAlignedAssigner_VaryingIoU_Sep 参数的 DetectionTrainer
+    
+    这个 Trainer 继承自 DetectionTrainer，并在每个 epoch 开始时自动更新
+    TaskAlignedAssigner_VaryingIoU_Sep 的 align_iou_kwargs 参数。
+    
+    Attributes:
+        继承自 DetectionTrainer 的所有属性
+    
+    Examples:
+        >>> from ultralytics.models.yolo.detect import DetectionTrainerWithDynamicAssigner
+        >>> 
+        >>> # 方式1: 使用自定义更新函数
+        >>> def update_func(epoch, total_epochs):
+        ...     progress = epoch / max(total_epochs - 1, 1)
+        ...     return {'alpha': 0.5 + 0.5 * progress}
+        >>> 
+        >>> trainer = DetectionTrainerWithDynamicAssigner(
+        ...     overrides={
+        ...         'model': 'yolo11n.pt',
+        ...         'data': 'coco8.yaml',
+        ...         'align_iou_kwargs_update_func': update_func
+        ...     }
+        ... )
+        >>> trainer.train()
+    """
+
+    def __init__(self, cfg=DEFAULT_CFG, overrides: dict[str, Any] | None = None, _callbacks=None):
+        """
+        初始化 DetectionTrainerWithDynamicAssigner
+        
+        Args:
+            cfg: 默认配置字典
+            overrides: 参数覆盖字典，可以包含 'align_iou_kwargs_update_func' 用于自定义更新策略
+            _callbacks: 回调函数列表
+        """
+        super().__init__(cfg, overrides, _callbacks)
+        # 注册回调以在每个 epoch 开始时更新 assigner 参数
+        self.add_callback("on_train_epoch_start", self._update_assigner_params)
+
+    def _update_assigner_params(self, trainer):
+        """
+        在每个 epoch 开始时更新 TaskAlignedAssigner_VaryingIoU_Sep 的 align_iou_kwargs 参数
+        
+        这个方法会在 on_train_epoch_start 回调中被调用
+        
+        使用方式:
+            1. 通过配置文件或命令行参数传递自定义更新函数:
+               trainer.args.align_iou_kwargs_update_func = lambda epoch, total: {'alpha': 0.5 + 0.5 * epoch / total}
+            
+            2. 或者直接传递字典进行部分更新:
+               trainer.args.align_iou_kwargs_update_func = {'alpha': 0.8}
+        
+        Args:
+            trainer: BaseTrainer 实例（self）
+        """
+        from ultralytics.utils.mla_dab import TaskAlignedAssigner_VaryingIoU_Sep
+        
+        # 检查模型是否有 criterion 和 assigner
+        if not hasattr(self.model, 'criterion') or not hasattr(self.model.criterion, 'assigner'):
+            return
+        
+        assigner = self.model.criterion.assigner
+        
+        # 检查是否是 TaskAlignedAssigner_VaryingIoU_Sep 类型
+        if isinstance(assigner, TaskAlignedAssigner_VaryingIoU_Sep):
+            # 获取配置中的更新函数或参数
+            # 可以通过 args 传递自定义更新函数
+            update_func = getattr(self.args, 'align_iou_kwargs_update_func', None)
+            
+            if update_func is not None:
+                # 使用自定义更新函数
+                if callable(update_func):
+                    new_kwargs = update_func(self.epoch, self.epochs)
+                    assigner.update_align_iou_kwargs(new_kwargs)
+                else:
+                    # 如果 update_func 是字典，直接更新
+                    assigner.update_align_iou_kwargs(update_func)
+            else:
+                # 使用默认的基于 epoch 的更新策略（默认保持不变）
+                # 如果需要动态更新，请通过 args.align_iou_kwargs_update_func 传递自定义函数
+                assigner.update_align_iou_kwargs_by_epoch(self.epoch, self.epochs)
+            
+            # 可选：打印当前参数值用于调试
+            if RANK in {-1, 0}:  # 每次更新都打印
+                LOGGER.info(f"Epoch {self.epoch + 1}: Updated align_iou_kwargs = {assigner.align_iou_kwargs}")

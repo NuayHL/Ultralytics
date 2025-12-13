@@ -185,13 +185,39 @@ def bbox_iou_ext(
         w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
         w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
 
-    if iou_type == "l1":
+    if iou_type in ["l1", "l1_ext"]:
         raw =  (torch.pow(torch.abs(b1_x1 - b2_x1).clamp(min=0), 2) +
                 torch.pow(torch.abs(b1_y1 - b2_y1).clamp(min=0), 2) +
                 torch.pow(torch.abs(b1_x2 - b2_x2).clamp(min=0), 2) +
                 torch.pow(torch.abs(b1_y2 - b2_y2).clamp(min=0), 2) )
         lambda1 = iou_kargs.get("lambda1", 0.4)
-        return torch.exp( - lambda1 * raw / (w2 * h2 + eps))
+        if iou_type == "l1":
+            return torch.exp( - lambda1 * raw / (w2 * h2 + eps))
+        else:
+            return torch.exp( - lambda1 * torch.sqrt(raw) / (w2 * h2 + eps))
+
+    if iou_type == "NWD":
+        # Calculate centers (cx, cy)
+        cx1 = (b1_x1 + b1_x2) / 2
+        cy1 = (b1_y1 + b1_y2) / 2
+        cx2 = (b2_x1 + b2_x2) / 2
+        cy2 = (b2_y1 + b2_y2) / 2
+
+        # Calculate Wasserstein distance squared for Gaussian distributions (AABBs)
+        # W^2 = ||m1 - m2||^2 + ||Sigma1^(1/2) - Sigma2^(1/2)||_F^2
+        # m = (cx, cy), Sigma = diag((w/2)^2, (h/2)^2)
+
+        center_dist_sq = (cx1 - cx2).pow(2) + (cy1 - cy2).pow(2)
+        wh_dist_sq = ((w1 - w2) / 2).pow(2) + ((h1 - h2) / 2).pow(2)
+
+        wasserstein_sq = center_dist_sq + wh_dist_sq
+
+        # Normalize to [0, 1] using constant C (default 12.0)
+        # Retrieve C from iou_kargs or default to 12.0
+        C = iou_kargs.get("nwd_c", 12.0)
+
+        return torch.exp(-torch.sqrt(wasserstein_sq + eps) / C)
+        # return torch.exp(-(wasserstein_sq + eps) / C)
 
     if iou_type == "SimD":
         # Retrieve hyperparameters from iou_kargs, default to 6.13 and 4.59
@@ -258,7 +284,7 @@ def bbox_iou_ext(
     if iou_type == "AlphaIoU":
         return torch.pow(iou, iou_kargs.get("alpha", 0.5))
 
-    if iou_type == "Hausdorff":
+    if iou_type in ["Hausdorff", "Hausdorff_Ext_IoU", "Hausdorff_Ext_L2"]:
         # Implementation of HIoU (Hausdorff-IoU)
         # Formula: HIoU = IoU - (Hausdorff_Distance^2 / Convex_Diagonal^2)
 
@@ -294,7 +320,23 @@ def bbox_iou_ext(
         # This acts as a drop-in replacement for DIoU/CIoU.
         # If perfect match: IoU=1, d_h=0 -> returns 1.0
         # If far away: IoU=0, d_h -> max -> returns negative value (penalty).
-        return torch.exp( - lambda1 * d_h_sq / torch.pow(d2, lambda2) )
+        hiou = torch.exp( - lambda1 * d_h_sq / torch.pow(d2, lambda2) )
+        
+        if iou_type in ["Hausdorff_Ext_IoU", "Hausdorff_Ext_L2"]:
+            pow_value = iou_kargs.get("hybrid_pow", 5)
+            if iou_type == "Hausdorff_Ext_IoU":
+                base_dist = inter / union
+            elif iou_type == "Hausdorff_Ext_L2":
+                L2_dis_sq =  (torch.pow(torch.abs(b1_x1 - b2_x1).clamp(min=0), 2) +
+                              torch.pow(torch.abs(b1_y1 - b2_y1).clamp(min=0), 2) +
+                              torch.pow(torch.abs(b1_x2 - b2_x2).clamp(min=0), 2) +
+                              torch.pow(torch.abs(b1_y2 - b2_y2).clamp(min=0), 2) )
+                lambda1 = iou_kargs.get("lambda3", 7)
+                base_dist = torch.exp( - lambda1 * torch.sqrt(L2_dis_sq) / (w2 * h2 + eps))
+            final_metric = (1 - pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
+            return final_metric
+        else:
+            return hiou
 
     if iou_type == "SIoU":
         cw = torch.max(b1_x2, b2_x2) - torch.min(b1_x1, b2_x1)  # convex width
@@ -349,6 +391,56 @@ def bbox_iou_ext(
         return iou  # IoU
     else:
         raise ValueError(f"Invalid iou_type {iou_type}.")
+
+
+def directed_hausdorff_rect(b1, b2):
+    """
+    Calculates the Directed Hausdorff Distance h(b1, b2).
+    It measures how far the 'worst' point in b1 is from the region of b2.
+    
+    Args:
+        b1 (Tensor): Source boxes (e.g., Predictions), shape [N, 4]. Format: (x1, y1, x2, y2)
+        b2 (Tensor): Target boxes (e.g., Ground Truth), shape [N, 4]. Format: (x1, y1, x2, y2)
+        
+    Returns:
+        h_dist (Tensor): The directed Hausdorff distance h(b1, b2), shape [N]
+    """
+    # 1. Expand b1 to get its 4 corners: (N, 4_corners, 2_coords)
+    # The 4 corners are: (x1, y1), (x2, y1), (x2, y2), (x1, y2)
+    b1_x1, b1_y1, b1_x2, b1_y2 = b1.unbind(dim=-1)
+    
+    # Stack coordinates to shape [N, 4, 2]
+    # Corners: TL, TR, BR, BL
+    corners_x = torch.stack([b1_x1, b1_x2, b1_x2, b1_x1], dim=1) 
+    corners_y = torch.stack([b1_y1, b1_y1, b1_y2, b1_y2], dim=1)
+    
+    # 2. Expand b2 to broadcast against b1's corners
+    # b2 shape: [N, 4] -> Need to compare against 4 corners of b1
+    # We define the boundaries of b2
+    b2_x1 = b2[:, 0].unsqueeze(1) # Shape [N, 1]
+    b2_y1 = b2[:, 1].unsqueeze(1)
+    b2_x2 = b2[:, 2].unsqueeze(1)
+    b2_y2 = b2[:, 3].unsqueeze(1)
+    
+    # 3. Calculate distance from each corner of b1 to the rectangle b2
+    # For a point (x, y) and a rectangle [x1, y1, x2, y2]:
+    # dx = max(x1 - x, 0, x - x2)
+    # dy = max(y1 - y, 0, y - y2)
+    # This calculates the Euclidean distance to the nearest point IN or ON the boundary of b2.
+    
+    # distance in x direction (ReLU acts as max(0, ...))
+    dx = torch.relu(b2_x1 - corners_x) + torch.relu(corners_x - b2_x2)
+    
+    # distance in y direction
+    dy = torch.relu(b2_y1 - corners_y) + torch.relu(corners_y - b2_y2)
+    
+    # Euclidean distance for each corner
+    corner_dists = torch.sqrt(dx.pow(2) + dy.pow(2)) # Shape [N, 4]
+
+    # 4. The Directed Hausdorff Distance is the maximum of these corner distances
+    h_dist, _ = torch.max(corner_dists, dim=1) # Shape [N]
+    
+    return h_dist
 
 
 def mask_iou(mask1: torch.Tensor, mask2: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:

@@ -32,6 +32,7 @@ def plot_iou_curve(iou_list: list):
     ax.set_ylim(0, 2)
     plt.legend()
     plt.savefig('iou_curve.png')
+    plt.show()
 
 
 def plot_iou_contour(iou_list: list, contour_levels: list = None,
@@ -279,14 +280,21 @@ if __name__ == "__main__":
                     ["DIoU", "DIoU",{}],
                     # ["CIoU_with_alpha", "CIoU",{"alpha":0.5}],
                     ["CIoU", "CIoU",{}],
-                    # ["PIoU", "PIoU",{}],
-                    # ["InterpIoU", "InterpIoU",{"interp_coe": 0.98}],
-                    # ["D_InterpIoU", "D_InterpIoU", {"lv":0.9, "hv":0.98}],
                     # ["l1", "l1", {}],
-                    ["Hausdorff", "Hausdorff", {}],
-                    # ["AlphaIoU", "AlphaIoU", {"alpha": 0.5}],
+                    ["l1", "l1", {"lambda1": 0.8}],
+                    ["l1_ext", "l1_ext", {"lambda1": 7}],
+                    ["Hausdorff", "Hausdorff", {"lambda1": 2.5}],
+                    ["Hausdorff_Ext_IoU", "Hausdorff_Ext_IoU", {"lambda1": 2.5, "hybrid_pow": 5,}],
+                    ["Hausdorff_Ext_L2", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 5, "lambda3": 10}],
+                    # ["Hausdorff1", "Hausdorff", {"lambda1": 5}],
+                    # ["Hausdorff2", "Hausdorff", {"lambda1": 3.}],
+                    # ["Hausdorff3", "Hausdorff", {"lambda1": 4.}],
+                    # ["Hausdorff4", "Hausdorff", {"lambda1": 4.5}],
+                    ["NWD", "NWD", {"nwd_c": 12}],
+                    # ["AlphaIoU", "AlphaIoU", {"alpha": 0.3}],
                     ["IoU", "IoU" ,{}],
-                    ["SimD1", "SimD",{"sim_x":6.13, "sim_y":4.59}],])
+                    # ["SimD1", "SimD",{"sim_x":6.13, "sim_y":4.59}],
+                    ])
     
     # 示例：等高线子图（每种IoU一个子图）
     iou_metrics = [
@@ -297,13 +305,14 @@ if __name__ == "__main__":
         # ["PIoU", "PIoU",{}],
         # ["InterpIoU", "InterpIoU",{"interp_coe": 0.98}],
         # ["D_InterpIoU", "D_InterpIoU", {"lv":0.9, "hv":0.98}],
-        # ["l1", "l1", {}],
+        ["l1", "l1", {"lameda": 0.4}],
         ["Hausdorff", "Hausdorff", {}],
+        ["Hausdorff1", "Hausdorff", {"lameda": 2.5}],
         # ["AlphaIoU", "AlphaIoU", {"alpha": 0.5}],
         ["IoU", "IoU", {}],
         ["SimD1", "SimD", {"sim_x": 6.13, "sim_y": 4.59}],
     ]
-    plot_iou_contour(iou_metrics, bbox_size=(60, 60), grid_range=120)
+    # plot_iou_contour(iou_metrics, bbox_size=(60, 60), grid_range=120)
     #
     # 示例：叠加对比单一等高线值
     # plot_iou_contour_overlay(iou_metrics, contour_value=0.5, bbox_size=(60, 60))

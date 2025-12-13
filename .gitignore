@@ -174,3 +174,12 @@ pnnx*
 
 # calibration image
 calibration_*.npy
+
+run_assignment
+assign_detail
+assign_record
+heatmaps*
+img_temp
+terminal_log
+
+/hyper_scale/models/
