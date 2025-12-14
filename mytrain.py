@@ -55,7 +55,8 @@ class LogLogger:
             self.log_file.close()
 
 
-def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml, log_root, trainer=None):
+def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml, log_root, trainer=None,
+                   other_train_kwargs={}, no_files_upload=False):
     """
     Runs a single training experiment and triggers the post-processing script.
     
@@ -67,6 +68,7 @@ def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml, log_
         model_yaml: 模型配置文件路径
         log_root: 日志根目录
         trainer: Trainer 类，如果为 None 则使用默认 Trainer
+        other_train_kwargs: 其它训练参数
     """
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Starting Experiment: {exp_name}...")
     
@@ -91,10 +93,13 @@ def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml, log_
             'save': True,
             'project': "runs/detect",
             'name': project_path,
-            # 'save_period': 1,
+            'amp': True,
+            'save_period': -1,
             'exist_ok': True,
             'trainer': trainer
         }
+
+        train_kwargs.update(other_train_kwargs)
           
         # Train
         model.train(**train_kwargs)
@@ -110,7 +115,7 @@ def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml, log_
         "python", "myutils/main.py",
         "--exp-path", f"runs/detect/{exp_prefix}/{exp_name}",
         "--data-path", data_yaml,
-        # "--no-files",
+        "--no-files" if no_files_upload else "",
         "--extra-tags"
     ] + extra_tags
     
@@ -124,7 +129,7 @@ def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml, log_
     else:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Post-processing failed with error code {result.returncode}.\n")
 
-def main(exp_prefix="hituav", data_yaml="ultralytics/cfg/datasets/hit-uav.yaml", 
+def main(exp_prefix="hituav", data_yaml="ultralytics/cfg/datasets/hit-uav.yaml", no_files_upload=False,
          exp_list=[{"exp_name": "v12s_record", "extra_tags": ["v12", "v12s", "baseline"]},],):
 
     log_root = Path("terminal_log") / f"terminal_log_{exp_prefix}"
@@ -139,69 +144,45 @@ def main(exp_prefix="hituav", data_yaml="ultralytics/cfg/datasets/hit-uav.yaml",
             data_yaml=data_yaml,
             model_yaml=exp["model_yaml"],
             log_root=log_root,
-            trainer=exp.get("trainer", None))
+            trainer=exp.get("trainer", None),
+            other_train_kwargs=exp.get("other_train_kwargs", {}),
+            no_files_upload=no_files_upload
+        )
 
 
 if __name__ == "__main__":
-
     EXP_LIST = [
-                dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_7_topk7",
-                     extra_tags=["v12", "v12s"],
-                     model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_7_topk7.yaml",
-                     trainer=None),
-                dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_10_topk7",
-                     extra_tags=["v12", "v12s"],
-                     model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_10_topk7.yaml",
-                     trainer=None),
-                dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_IoU_topk7",
-                     extra_tags=["v12", "v12s"],
-                     model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_IoU_topk7.yaml",
-                     trainer=None),
-                dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_pow4_7_topk7",
-                     extra_tags=["v12", "v12s"],
-                     model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_pow4_7_topk7.yaml",
-                     trainer=None),
-                dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_pow3_7_topk7",
-                     extra_tags=["v12", "v12s"],
-                     model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_pow3_7_topk7.yaml",
-                     trainer=None),
+        dict(exp_name="v12s_topk7_no_amp",
+             extra_tags=["v12", "v12s", "baseline", "no_amp"],
+             model_yaml="cfg/yolo12s_topk7.yaml",
+             trainer=None, other_train_kwargs=dict(amp=False)),
+        dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_pow4_7_topk7_no_amp",
+             extra_tags=["v12", "v12s", "no_amp"],
+             model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_pow4_7_topk7.yaml",
+             trainer=None, other_train_kwargs=dict(amp=False)),
     ]
-
-    EXP_PREFIX = "hituav"
-    DATA_YAML = "ultralytics/cfg/datasets/hit-uav.yaml"
-
-    main(
-        exp_prefix=EXP_PREFIX,
-        data_yaml=DATA_YAML,
-        exp_list=EXP_LIST
-    )
-
-
-    EXP_PREFIX = "aitodv2"
-    DATA_YAML = "ultralytics/cfg/datasets/ai-todv2.yaml"
-
-    EXP_LIST = [
-                dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_7_topk7",
-                     extra_tags=["v12", "v12s"],
-                     model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_7_topk7.yaml",
-                     trainer=None),
-                dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_IoU_topk7",
-                     extra_tags=["v12", "v12s"],
-                     model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_IoU_topk7.yaml",
-                     trainer=None),
-    ]
-    
-    main(
-        exp_prefix=EXP_PREFIX,
-        data_yaml=DATA_YAML,
-        exp_list=EXP_LIST
-    )
 
     EXP_PREFIX = "visdrone"
     DATA_YAML = "ultralytics/cfg/datasets/VisDrone.yaml"
-
     main(
         exp_prefix=EXP_PREFIX,
         data_yaml=DATA_YAML,
         exp_list=EXP_LIST
     )
+
+    EXP_PREFIX = "hituav"
+    DATA_YAML = "ultralytics/cfg/datasets/hit-uav.yaml"
+    main(
+        exp_prefix=EXP_PREFIX,
+        data_yaml=DATA_YAML,
+        exp_list=EXP_LIST
+    )
+
+    EXP_PREFIX = "aitodv2"
+    DATA_YAML = "ultralytics/cfg/datasets/ai-todv2.yaml"
+    main(
+        exp_prefix=EXP_PREFIX,
+        data_yaml=DATA_YAML,
+        exp_list=EXP_LIST
+    )
+
