@@ -5,7 +5,7 @@ import torch
 
 STEP=100
 BBOX_SIZE1 = [2, 2]
-BBOX_SIZE2 = [5, 5]
+BBOX_SIZE2 = [5, 3]
 GT_BBOX = torch.tensor([120, 140, BBOX_SIZE2[0], BBOX_SIZE2[1]]).expand(STEP+1, -1)
 START_PRED_BBOX = torch.tensor([130, 150, BBOX_SIZE1[0], BBOX_SIZE1[1]]).expand(STEP+1, -1)
 coe = torch.tensor([[float(i)/STEP] for i in range(STEP+1)])
@@ -276,21 +276,24 @@ def plot_iou_contour_multi_values(iou_list: list, contour_values: list = None,
 
 if __name__ == "__main__":
     # 原有的曲线图
-    plot_iou_curve([["GIoU", "GIoU",{}],
-                    ["DIoU", "DIoU",{}],
+    plot_iou_curve([
+                    # ["GIoU", "GIoU",{}],
+                    # ["DIoU", "DIoU",{}],
                     # ["CIoU_with_alpha", "CIoU",{"alpha":0.5}],
-                    ["CIoU", "CIoU",{}],
+                    # ["CIoU", "CIoU",{}],
                     # ["l1", "l1", {}],
                     ["l1", "l1", {"lambda1": 0.8}],
                     ["l1_ext", "l1_ext", {"lambda1": 7}],
-                    ["Hausdorff", "Hausdorff", {"lambda1": 2.5}],
-                    ["Hausdorff_Ext_IoU", "Hausdorff_Ext_IoU", {"lambda1": 2.5, "hybrid_pow": 5,}],
+                    # ["Hausdorff", "Hausdorff", {"lambda1": 2.5}],
+                    # ["Hausdorff_Ext_IoU", "Hausdorff_Ext_IoU", {"lambda1": 2.5, "hybrid_pow": 5,}],
                     ["Hausdorff_Ext_L2", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 5, "lambda3": 10}],
+                    ["Hausdorff_Ext_L2_good", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
+                    ["Hausdorff_Ext_L2_fix", "Hausdorff_Ext_L2_fix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 12}],
                     # ["Hausdorff1", "Hausdorff", {"lambda1": 5}],
                     # ["Hausdorff2", "Hausdorff", {"lambda1": 3.}],
                     # ["Hausdorff3", "Hausdorff", {"lambda1": 4.}],
                     # ["Hausdorff4", "Hausdorff", {"lambda1": 4.5}],
-                    ["NWD", "NWD", {"nwd_c": 12}],
+                    # ["NWD", "NWD", {"nwd_c": 12}],
                     # ["AlphaIoU", "AlphaIoU", {"alpha": 0.3}],
                     ["IoU", "IoU" ,{}],
                     # ["SimD1", "SimD",{"sim_x":6.13, "sim_y":4.59}],

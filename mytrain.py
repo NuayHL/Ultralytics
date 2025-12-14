@@ -110,14 +110,20 @@ def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml, log_
     # 2. Run external post-processing script
     # We use subprocess to call your existing script exactly as before.
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Running post-processing...")
-    
+
     cmd = [
         "python", "myutils/main.py",
         "--exp-path", f"runs/detect/{exp_prefix}/{exp_name}",
         "--data-path", data_yaml,
-        "--no-files" if no_files_upload else "",
-        "--extra-tags"
-    ] + extra_tags
+    ]
+
+    if no_files_upload:
+        cmd.append("--no-files")
+
+    # Only add the flag if the list is not empty
+    if extra_tags:
+        cmd.append("--extra-tags")
+        cmd.extend(extra_tags)
     
     # Run the subprocess. 
     # capturing_output=False ensures this script's output still shows on your screen 
@@ -152,13 +158,13 @@ def main(exp_prefix="hituav", data_yaml="ultralytics/cfg/datasets/hit-uav.yaml",
 
 if __name__ == "__main__":
     EXP_LIST = [
-        dict(exp_name="v12s_topk7_no_amp",
-             extra_tags=["v12", "v12s", "baseline", "no_amp"],
-             model_yaml="cfg/yolo12s_topk7.yaml",
-             trainer=None, other_train_kwargs=dict(amp=False)),
-        dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_pow4_7_topk7_no_amp",
+        # dict(exp_name="v12s_topk7_no_amp",
+        #      extra_tags=["v12", "v12s", "baseline", "no_amp"],
+        #      model_yaml="cfg/yolo12s_topk7.yaml",
+        #      trainer=None, other_train_kwargs=dict(amp=False)),
+        dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_fix_pow4_12_topk7_no_amp",
              extra_tags=["v12", "v12s", "no_amp"],
-             model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_pow4_7_topk7.yaml",
+             model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_fix_pow4_12_topk7.yaml",
              trainer=None, other_train_kwargs=dict(amp=False)),
     ]
 
@@ -169,6 +175,17 @@ if __name__ == "__main__":
         data_yaml=DATA_YAML,
         exp_list=EXP_LIST
     )
+
+    EXP_LIST = [
+        dict(exp_name="v12s_topk7_no_amp",
+             extra_tags=["v12", "v12s", "baseline", "no_amp"],
+             model_yaml="cfg/yolo12s_topk7.yaml",
+             trainer=None, other_train_kwargs=dict(amp=False)),
+        dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_fix_pow4_12_topk7_no_amp",
+             extra_tags=["v12", "v12s", "no_amp"],
+             model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_fix_pow4_12_topk7.yaml",
+             trainer=None, other_train_kwargs=dict(amp=False)),
+    ]
 
     EXP_PREFIX = "hituav"
     DATA_YAML = "ultralytics/cfg/datasets/hit-uav.yaml"

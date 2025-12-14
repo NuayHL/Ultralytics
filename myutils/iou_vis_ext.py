@@ -22,8 +22,10 @@ def calculate_metrics(pred_bboxes: torch.Tensor, gt_bbox: torch.Tensor) -> Dict[
             "L1": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="l1", xywh=True, iou_kargs={"lambda1": 0.8}),
             # "NWD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="NWD", xywh=True, iou_kargs={"nwd_c": 12}),
             "NWD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="Hausdorff_Ext_L2", 
-                                xywh=True, iou_kargs={"lambda1": 2.5, "hybrid_pow": 5, "lambda3": 10}),
-            "SimD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="SimD", xywh=True),
+                                xywh=True, iou_kargs={"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}),
+            # "SimD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="SimD", xywh=True),
+            "SimD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="Hausdorff_Ext_L2_fix",
+                                xywh=True, iou_kargs={"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 12}),
             "Hausdorff": bbox_iou_ext(
                 pred_bboxes,
                 gt_bbox,

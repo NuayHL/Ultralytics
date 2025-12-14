@@ -261,6 +261,9 @@ def bbox_iou_ext(
     # IoU
     iou = inter / union
 
+    if iou_type == "test":
+        return torch.exp(iou-1)
+
     # interpiou frameworks
     if iou_type in ["InterpIoU", "D_InterpIoU"]:
         interp_coe = iou_kargs.get("interp_coe", 0.98)
@@ -284,7 +287,10 @@ def bbox_iou_ext(
     if iou_type == "AlphaIoU":
         return torch.pow(iou, iou_kargs.get("alpha", 0.5))
 
-    if iou_type in ["Hausdorff", "Hausdorff_Ext_IoU", "Hausdorff_Ext_L2"]:
+    if iou_type in ["Hausdorff",
+                    "Hausdorff_Ext_IoU",
+                    "Hausdorff_Ext_L2",
+                    "Hausdorff_Ext_L2_fix"]:
         # Implementation of HIoU (Hausdorff-IoU)
         # Formula: HIoU = IoU - (Hausdorff_Distance^2 / Convex_Diagonal^2)
 
@@ -322,17 +328,20 @@ def bbox_iou_ext(
         # If far away: IoU=0, d_h -> max -> returns negative value (penalty).
         hiou = torch.exp( - lambda1 * d_h_sq / torch.pow(d2, lambda2) )
         
-        if iou_type in ["Hausdorff_Ext_IoU", "Hausdorff_Ext_L2"]:
+        if iou_type in ["Hausdorff_Ext_IoU", "Hausdorff_Ext_L2", "Hausdorff_Ext_L2_fix"]:
             pow_value = iou_kargs.get("hybrid_pow", 5)
             if iou_type == "Hausdorff_Ext_IoU":
                 base_dist = inter / union
-            elif iou_type == "Hausdorff_Ext_L2":
+            elif iou_type in ["Hausdorff_Ext_L2", "Hausdorff_Ext_L2_fix"]:
                 L2_dis_sq =  (torch.pow(torch.abs(b1_x1 - b2_x1).clamp(min=0), 2) +
                               torch.pow(torch.abs(b1_y1 - b2_y1).clamp(min=0), 2) +
                               torch.pow(torch.abs(b1_x2 - b2_x2).clamp(min=0), 2) +
                               torch.pow(torch.abs(b1_y2 - b2_y2).clamp(min=0), 2) )
-                lambda1 = iou_kargs.get("lambda3", 7)
-                base_dist = torch.exp( - lambda1 * torch.sqrt(L2_dis_sq) / (w2 * h2 + eps))
+                lambda3 = iou_kargs.get("lambda3", 7)
+                if iou_type == "Hausdorff_Ext_L2_fix":
+                    base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / d2)
+                else:
+                    base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / (w2 * h2 + eps))
             final_metric = (1 - pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
             return final_metric
         else:
