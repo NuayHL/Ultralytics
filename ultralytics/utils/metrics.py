@@ -290,6 +290,7 @@ def bbox_iou_ext(
     if iou_type in ["Hausdorff",
                     "Hausdorff_Ext_IoU",
                     "Hausdorff_Ext_L2",
+                    "Hausdorff_Ext_L2_rfix",
                     "Hausdorff_Ext_L2_fix",
                     "Hausdorff_test"]:
         # Implementation of HIoU (Hausdorff-IoU)
@@ -329,11 +330,11 @@ def bbox_iou_ext(
         # If far away: IoU=0, d_h -> max -> returns negative value (penalty).
         hiou = torch.exp( - lambda1 * d_h_sq / torch.pow(d2, lambda2) )
         
-        if iou_type in ["Hausdorff_Ext_IoU", "Hausdorff_Ext_L2", "Hausdorff_Ext_L2_fix"]:
+        if iou_type in ["Hausdorff_Ext_IoU", "Hausdorff_Ext_L2", "Hausdorff_Ext_L2_fix", "Hausdorff_Ext_L2_rfix"]:
             pow_value = iou_kargs.get("hybrid_pow", 5)
             if iou_type == "Hausdorff_Ext_IoU":
                 base_dist = inter / union
-            elif iou_type in ["Hausdorff_Ext_L2", "Hausdorff_Ext_L2_fix"]:
+            elif iou_type in ["Hausdorff_Ext_L2", "Hausdorff_Ext_L2_fix", "Hausdorff_Ext_L2_rfix"]:
                 L2_dis_sq =  (torch.pow(torch.abs(b1_x1 - b2_x1).clamp(min=0), 2) +
                               torch.pow(torch.abs(b1_y1 - b2_y1).clamp(min=0), 2) +
                               torch.pow(torch.abs(b1_x2 - b2_x2).clamp(min=0), 2) +
@@ -341,8 +342,12 @@ def bbox_iou_ext(
                 lambda3 = iou_kargs.get("lambda3", 7)
                 if iou_type == "Hausdorff_Ext_L2_fix":
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / d2)
+                elif iou_type == "Hausdorff_Ext_L2_rfix":
+                    base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / torch.sqrt(w2 * h2 + eps))
                 else:
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / (w2 * h2 + eps))
+            else:
+                raise ValueError(f"Invalid iou_type {iou_type}.")
             final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
             return final_metric
         elif iou_type == "Hausdorff":
