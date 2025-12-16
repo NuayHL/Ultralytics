@@ -87,6 +87,9 @@ class FileUploader:
         filename = self.filename
         if prefix_name:
             filename = f"{prefix_name}-{self.filename}"
+            if len(filename) > 100:
+                Logger.warning(f"⚠️ Filename too long ({len(filename)}), truncating to 100 chars.")
+                filename = f"{prefix_name[:20]}-{self.filename}"
         result = self._append_file_to_page(page_id=page_id, filename=filename)
         Logger.info(f"File attached to page successfully: {filename}")
         self._clean_up()
@@ -149,6 +152,10 @@ class FileUploader:
             ]
         }
         resp = requests.patch(url, headers=self.headers, json=payload)
+
+        if resp.status_code == 400:
+            print(f"DEBUG ERROR DETAILS: {resp.text}")
+
         resp.raise_for_status()
         return resp.json()
 

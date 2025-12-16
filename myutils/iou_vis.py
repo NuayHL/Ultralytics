@@ -5,7 +5,7 @@ import torch
 
 STEP=100
 BBOX_SIZE1 = [2, 2]
-BBOX_SIZE2 = [5, 3]
+BBOX_SIZE2 = [5, 5]
 GT_BBOX = torch.tensor([120, 140, BBOX_SIZE2[0], BBOX_SIZE2[1]]).expand(STEP+1, -1)
 START_PRED_BBOX = torch.tensor([130, 150, BBOX_SIZE1[0], BBOX_SIZE1[1]]).expand(STEP+1, -1)
 coe = torch.tensor([[float(i)/STEP] for i in range(STEP+1)])
@@ -289,6 +289,7 @@ if __name__ == "__main__":
                     ["Hausdorff_Ext_L2", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 5, "lambda3": 10}],
                     ["Hausdorff_Ext_L2_good", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
                     ["Hausdorff_Ext_L2_fix", "Hausdorff_Ext_L2_fix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 12}],
+                    # ["Hausdorff_test", "Hausdorff_test", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 12}],
                     # ["Hausdorff1", "Hausdorff", {"lambda1": 5}],
                     # ["Hausdorff2", "Hausdorff", {"lambda1": 3.}],
                     # ["Hausdorff3", "Hausdorff", {"lambda1": 4.}],
@@ -309,13 +310,13 @@ if __name__ == "__main__":
         # ["InterpIoU", "InterpIoU",{"interp_coe": 0.98}],
         # ["D_InterpIoU", "D_InterpIoU", {"lv":0.9, "hv":0.98}],
         ["l1", "l1", {"lameda": 0.4}],
-        ["Hausdorff", "Hausdorff", {}],
+        ["Hausdorff_Ext_L2_good", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
         ["Hausdorff1", "Hausdorff", {"lameda": 2.5}],
         # ["AlphaIoU", "AlphaIoU", {"alpha": 0.5}],
         ["IoU", "IoU", {}],
         ["SimD1", "SimD", {"sim_x": 6.13, "sim_y": 4.59}],
     ]
-    # plot_iou_contour(iou_metrics, bbox_size=(60, 60), grid_range=120)
+    plot_iou_contour(iou_metrics, bbox_size=(60, 60), grid_range=120)
     #
     # 示例：叠加对比单一等高线值
     # plot_iou_contour_overlay(iou_metrics, contour_value=0.5, bbox_size=(60, 60))

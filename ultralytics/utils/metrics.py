@@ -290,7 +290,8 @@ def bbox_iou_ext(
     if iou_type in ["Hausdorff",
                     "Hausdorff_Ext_IoU",
                     "Hausdorff_Ext_L2",
-                    "Hausdorff_Ext_L2_fix"]:
+                    "Hausdorff_Ext_L2_fix",
+                    "Hausdorff_test"]:
         # Implementation of HIoU (Hausdorff-IoU)
         # Formula: HIoU = IoU - (Hausdorff_Distance^2 / Convex_Diagonal^2)
 
@@ -342,10 +343,14 @@ def bbox_iou_ext(
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / d2)
                 else:
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / (w2 * h2 + eps))
-            final_metric = (1 - pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
+            final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
             return final_metric
-        else:
+        elif iou_type == "Hausdorff":
             return hiou
+        elif iou_type == "Hausdorff_test":
+            raise NotImplementedError("Hausdorff_test is not implemented yet.")
+        else:
+            raise ValueError(f"Invalid iou_type {iou_type}.")
 
     if iou_type == "SIoU":
         cw = torch.max(b1_x2, b2_x2) - torch.min(b1_x1, b2_x1)  # convex width

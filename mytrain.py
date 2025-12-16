@@ -70,11 +70,14 @@ def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml, log_
         trainer: Trainer 类，如果为 None 则使用默认 Trainer
         other_train_kwargs: 其它训练参数
     """
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Starting Experiment: {exp_name}...")
-    
+
     log_file = log_root / f"{exp_name}.log"
     project_path = f"{exp_prefix}/{exp_name}"
-    
+    print(f"Log file: {log_file}")
+    print(f"Project path: {project_path}")
+
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Starting Experiment: {exp_name}...")
+
     # 1. Train with log redirection
     # Everything inside this 'with' block goes to the file, not the screen.
     with LogLogger(log_file):
@@ -162,31 +165,50 @@ if __name__ == "__main__":
         #      extra_tags=["v12", "v12s", "baseline", "no_amp"],
         #      model_yaml="cfg/yolo12s_topk7.yaml",
         #      trainer=None, other_train_kwargs=dict(amp=False)),
-        dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_fix_pow4_12_topk7_no_amp",
-             extra_tags=["v12", "v12s", "no_amp"],
-             model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_fix_pow4_12_topk7.yaml",
-             trainer=None, other_train_kwargs=dict(amp=False)),
+        dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_pow4_7",
+             extra_tags=["v12", "v12s"],
+             model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_pow4_7.yaml",
+             trainer=None),
+
+        dict(exp_name="v12n_assign4ciou_align_hausdorff_ext_l2_pow4_7",
+             extra_tags=["v12", "v12n"],
+             model_yaml="cfg/assign_iou/yolo12n_assign4ciou_align_hausdorff_ext_l2_pow4_7.yaml",
+             trainer=None),
+        dict(exp_name="v12n",
+             extra_tags=["v12", "v12n", "baseline"],
+             model_yaml="cfg/yolo12n.yaml",
+             trainer=None),
+
+        dict(exp_name="v12m_assign4ciou_align_hausdorff_ext_l2_pow4_7",
+             extra_tags=["v12", "v12m"],
+             model_yaml="cfg/assign_iou/yolo12m_assign4ciou_align_hausdorff_ext_l2_pow4_7.yaml",
+             trainer=None),
+
+        dict(exp_name="v12l_assign4ciou_align_hausdorff_ext_l2_pow4_7",
+             extra_tags=["v12", "v12l"],
+             model_yaml="cfg/assign_iou/yolo12l_assign4ciou_align_hausdorff_ext_l2_pow4_7.yaml",
+             trainer=None),
     ]
 
-    EXP_PREFIX = "visdrone"
-    DATA_YAML = "ultralytics/cfg/datasets/VisDrone.yaml"
-    main(
-        exp_prefix=EXP_PREFIX,
-        data_yaml=DATA_YAML,
-        exp_list=EXP_LIST
-    )
+    # EXP_PREFIX = "visdrone"
+    # DATA_YAML = "ultralytics/cfg/datasets/VisDrone.yaml"
+    # main(
+    #     exp_prefix=EXP_PREFIX,
+    #     data_yaml=DATA_YAML,
+    #     exp_list=EXP_LIST
+    # )
 
-    EXP_LIST = [
-        dict(exp_name="v12s_topk7_no_amp",
-             extra_tags=["v12", "v12s", "baseline", "no_amp"],
-             model_yaml="cfg/yolo12s_topk7.yaml",
-             trainer=None, other_train_kwargs=dict(amp=False)),
-        dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_fix_pow4_12_topk7_no_amp",
-             extra_tags=["v12", "v12s", "no_amp"],
-             model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_fix_pow4_12_topk7.yaml",
-             trainer=None, other_train_kwargs=dict(amp=False)),
-    ]
-
+    # EXP_LIST = [
+    #     dict(exp_name="v12s_topk7_no_amp",
+    #          extra_tags=["v12", "v12s", "baseline", "no_amp"],
+    #          model_yaml="cfg/yolo12s_topk7.yaml",
+    #          trainer=None, other_train_kwargs=dict(amp=False)),
+    #     dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_fix_pow4_12_topk7_no_amp",
+    #          extra_tags=["v12", "v12s", "no_amp"],
+    #          model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_fix_pow4_12_topk7.yaml",
+    #          trainer=None, other_train_kwargs=dict(amp=False)),
+    # ]
+    #
     EXP_PREFIX = "hituav"
     DATA_YAML = "ultralytics/cfg/datasets/hit-uav.yaml"
     main(
@@ -194,12 +216,12 @@ if __name__ == "__main__":
         data_yaml=DATA_YAML,
         exp_list=EXP_LIST
     )
-
-    EXP_PREFIX = "aitodv2"
-    DATA_YAML = "ultralytics/cfg/datasets/ai-todv2.yaml"
-    main(
-        exp_prefix=EXP_PREFIX,
-        data_yaml=DATA_YAML,
-        exp_list=EXP_LIST
-    )
+    #
+    # EXP_PREFIX = "aitodv2"
+    # DATA_YAML = "ultralytics/cfg/datasets/ai-todv2.yaml"
+    # main(
+    #     exp_prefix=EXP_PREFIX,
+    #     data_yaml=DATA_YAML,
+    #     exp_list=EXP_LIST
+    # )
 
