@@ -20,16 +20,7 @@ COLORS = [
     '#B07AA1',  # 紫色
 ]
 
-# 定义你要对比的 Loss 列表
-# 格式: [Legend Name, iou_type string, kwargs]
-LOSS_CONFIGS = [
-    ["CIoU", "CIoU", {}],
-    ["L1 (lambda=0.01)", "l1", {"lambda1": 0.01}],  # 注意 L1 值通常较大，可能需要缩放系数以便在同个图展示
-    ["L1_ext", "l1_ext", {"lambda1": 1.0}],
-    ["Hausdorff (Hybrid=5)", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 5, "lambda3": 10}],
-    ["Hausdorff (Hybrid=4)", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
-    ["IoU Loss", "IoU", {}],  # 我们将画 1-IoU
-]
+
 
 
 # ===========================
@@ -53,15 +44,7 @@ def get_loss_values(loss_list, fixed_bbox, moving_bbox_sequence):
         # 注意：这里我们假设 bbox_iou_ext 返回的是 tensor
         value_tensor = bbox_iou_ext(moving_bbox_sequence, gt_bboxes, iou_type=iou_type, iou_kargs=kwargs, xywh=True)
 
-        # 数据对齐处理：
-        # 如果是 IoU/CIoU/GIoU 类，通常函数返回的是 Score (越高越好)。
-        # 为了画“回归损失图”(V型)，我们需要用 1 - Score。
-        # 如果是 L1/Hausdorff 类，通常返回的是 Distance (越低越好)，直接用。
         vals = value_tensor.numpy()
-
-        # if 'IoU' in iou_type:
-        #     # 假设返回的是 IoU Score，转换为 Loss
-        #     vals = 1.0 - vals
 
         # 展平数组
         if len(vals.shape) > 1:
@@ -124,25 +107,38 @@ def draw_schematic(ax, scenario='horizontal'):
 # 3. 主绘图程序
 # ===========================
 
+# 定义你要对比的 Loss 列表
+# 格式: [Legend Name, iou_type string, kwargs]
+LOSS_CONFIGS = [
+    ["CIoU", "CIoU", {}],
+    ["Hausdorff in Gaussian Kernel", "Hausdorff", {"lambda1": 2.5}],
+    ["L2 in Laplacian Kernel", "l1_ext", {"lambda1": 7.0}],
+    ["HATS", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
+    ["IoU", "IoU", {}],
+]
+
+STRIDE = 0.2
+RANGE = 15
+BBOX_SIZE = [16, 16]
 # 定义 X 轴：像素偏差 (从 -30 到 30)
-DEVIATION_STEPS = np.arange(-30, 31, 2)  # 步长为2，产生稀疏点
+DEVIATION_STEPS = np.arange(-RANGE, RANGE+1, STRIDE)  # 步长为2，产生稀疏点
 CENTER_IDX = len(DEVIATION_STEPS) // 2
 
 # 创建 GT Box (中心点 100, 100, 宽高 40, 40)
-GT_BOX_TENSOR = torch.tensor([[100.0, 100.0, 40.0, 40.0]])
+GT_BOX_TENSOR = torch.tensor([[100.0, 100.0, BBOX_SIZE[0], BBOX_SIZE[1]]])
 
 # --- 场景 A 数据生成: 纯水平移动 ---
 bboxes_horizontal = []
 for dev in DEVIATION_STEPS:
     # x 发生偏差，y 不变，wh 不变
-    bboxes_horizontal.append([100.0 + dev, 100.0, 40.0, 40.0])
+    bboxes_horizontal.append([100.0 + dev, 100.0, BBOX_SIZE[0], BBOX_SIZE[1]])
 BBOXES_HOR = torch.tensor(bboxes_horizontal)
 
 # --- 场景 B 数据生成: 对角线移动 (XY同时偏差) ---
 bboxes_diagonal = []
 for dev in DEVIATION_STEPS:
     # x 和 y 同时发生偏差
-    bboxes_diagonal.append([100.0 + dev, 100.0 + dev, 40.0, 40.0])
+    bboxes_diagonal.append([100.0 + dev, 100.0 + dev, BBOX_SIZE[0], BBOX_SIZE[1]])
 BBOXES_DIAG = torch.tensor(bboxes_diagonal)
 
 # 计算 Loss
@@ -160,14 +156,13 @@ ax1 = axes[0, 1]
 for i, (name, val_array) in enumerate(results_hor.items()):
     color = COLORS[i % len(COLORS)]
     # 关键修改：markersize=4 (更小), linewidth=1.5 (细线)
-    ax1.plot(DEVIATION_STEPS, val_array, marker='o', linestyle='-',
-             linewidth=1.5, markersize=3, label=name, color=color, alpha=0.9)
+    ax1.plot(DEVIATION_STEPS, val_array, linestyle='-', label=name, color=color, alpha=0.9)
 
 ax1.set_title("Loss Landscape: Horizontal Deviation", fontsize=14)
-ax1.set_ylabel("Loss Value (1-IoU for metrics)", fontsize=11)
+ax1.set_ylabel("Distance", fontsize=11)
 ax1.set_ylim(bottom=0)  # Loss 从 0 开始
 ax1.grid(True, linestyle='--', alpha=0.4)  # 网格更淡
-ax1.legend(loc='upper center', fontsize=9, frameon=True, ncol=2)
+ax1.legend(fontsize=9, frameon=True, ncol=1)
 
 # Row 2: Diagonal Shift
 draw_schematic(axes[1, 0], scenario='diagonal')
@@ -175,8 +170,7 @@ ax2 = axes[1, 1]
 
 for i, (name, val_array) in enumerate(results_diag.items()):
     color = COLORS[i % len(COLORS)]
-    ax2.plot(DEVIATION_STEPS, val_array, marker='o', linestyle='-',
-             linewidth=1.5, markersize=3, label=name, color=color, alpha=0.9)
+    ax2.plot(DEVIATION_STEPS, val_array, linestyle='-', label=name, color=color, alpha=0.9)
 
 ax2.set_title("Loss Landscape: Diagonal Deviation", fontsize=14)
 ax2.set_xlabel("Deviation (Pixels)", fontsize=12)
@@ -187,8 +181,8 @@ ax2.grid(True, linestyle='--', alpha=0.4)
 
 # 统一设置 X 轴刻度
 for ax in [ax1, ax2]:
-    ax.set_xticks(np.arange(-30, 31, 10))
-    ax.set_xlim(-32, 32)
+    ax.set_xticks(np.arange(-RANGE, RANGE+1, 10))
+    ax.set_xlim(-(RANGE+1), (RANGE+1))
 
 plt.savefig('hausdorff_iou_loss_comparison.png', dpi=200, bbox_inches='tight')
 plt.show()

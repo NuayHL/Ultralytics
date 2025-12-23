@@ -3,12 +3,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 
-STEP=100
-BBOX_SIZE1 = [2, 2]
+STEP=50
+BBOX_SIZE1 = [5, 5]
 BBOX_SIZE2 = [5, 5]
 GT_BBOX = torch.tensor([120, 140, BBOX_SIZE2[0], BBOX_SIZE2[1]]).expand(STEP+1, -1)
 START_PRED_BBOX = torch.tensor([130, 150, BBOX_SIZE1[0], BBOX_SIZE1[1]]).expand(STEP+1, -1)
 coe = torch.tensor([[float(i)/STEP] for i in range(STEP+1)])
+print(coe)
 INTERP_BBOX = GT_BBOX * coe + START_PRED_BBOX * (1 - coe)
 X_RANGE = np.arange(STEP+1)
 
@@ -28,7 +29,7 @@ def plot_iou_curve(iou_list: list):
     ax.set_xlabel('Step', fontsize=14)
     ax.set_ylabel('Loss Value', fontsize=14)
     ax.grid(True, linestyle='--', alpha=0.6)
-    ax.set_xlim(0, 100)
+    ax.set_xlim(0, STEP)
     ax.set_ylim(0, 2)
     plt.legend()
     plt.savefig('iou_curve.png')
@@ -276,30 +277,39 @@ def plot_iou_contour_multi_values(iou_list: list, contour_values: list = None,
 
 if __name__ == "__main__":
     # 原有的曲线图
-    plot_iou_curve([
-                    # ["GIoU", "GIoU",{}],
-                    # ["DIoU", "DIoU",{}],
-                    # ["CIoU_with_alpha", "CIoU",{"alpha":0.5}],
-                    # ["CIoU", "CIoU",{}],
-                    # ["l1", "l1", {}],
-                    ["l1", "l1", {"lambda1": 0.8}],
-                    ["l1_ext", "l1_ext", {"lambda1": 7}],
-                    # ["Hausdorff", "Hausdorff", {"lambda1": 2.5}],
-                    # ["Hausdorff_Ext_IoU", "Hausdorff_Ext_IoU", {"lambda1": 2.5, "hybrid_pow": 5,}],
-                    ["Hausdorff_Ext_L2", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 5, "lambda3": 10}],
-                    ["Hausdorff_Ext_L2_good", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
-                    ["Hausdorff_Ext_L2_fix", "Hausdorff_Ext_L2_fix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 12}],
-                    # ["Hausdorff_test", "Hausdorff_test", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 12}],
-                    # ["Hausdorff1", "Hausdorff", {"lambda1": 5}],
-                    # ["Hausdorff2", "Hausdorff", {"lambda1": 3.}],
-                    # ["Hausdorff3", "Hausdorff", {"lambda1": 4.}],
-                    # ["Hausdorff4", "Hausdorff", {"lambda1": 4.5}],
-                    # ["NWD", "NWD", {"nwd_c": 12}],
-                    # ["AlphaIoU", "AlphaIoU", {"alpha": 0.3}],
-                    ["IoU", "IoU" ,{}],
-                    # ["SimD1", "SimD",{"sim_x":6.13, "sim_y":4.59}],
-                    ])
-    
+    # plot_iou_curve([
+    #                 # ["GIoU", "GIoU",{}],
+    #                 # ["DIoU", "DIoU",{}],
+    #                 # ["CIoU_with_alpha", "CIoU",{"alpha":0.5}],
+    #                 # ["CIoU", "CIoU",{}],
+    #                 # ["l1", "l1", {}],
+    #                 ["l1", "l1", {"lambda1": 0.8}],
+    #                 ["l1_ext", "l1_ext", {"lambda1": 7}],
+    #                 # ["Hausdorff", "Hausdorff", {"lambda1": 2.5}],
+    #                 # ["Hausdorff_Ext_IoU", "Hausdorff_Ext_IoU", {"lambda1": 2.5, "hybrid_pow": 5,}],
+    #                 ["Hausdorff_Ext_L2", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 5, "lambda3": 10}],
+    #                 ["Hausdorff_Ext_L2_good", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
+    #                 ["Hausdorff_Ext_L2_fix", "Hausdorff_Ext_L2_fix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 12}],
+    #                 # ["Hausdorff_test", "Hausdorff_test", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 12}],
+    #                 # ["Hausdorff1", "Hausdorff", {"lambda1": 5}],
+    #                 # ["Hausdorff2", "Hausdorff", {"lambda1": 3.}],
+    #                 # ["Hausdorff3", "Hausdorff", {"lambda1": 4.}],
+    #                 # ["Hausdorff4", "Hausdorff", {"lambda1": 4.5}],
+    #                 # ["NWD", "NWD", {"nwd_c": 12}],
+    #                 # ["AlphaIoU", "AlphaIoU", {"alpha": 0.3}],
+    #                 ["IoU", "IoU" ,{}],
+    #                 # ["SimD1", "SimD",{"sim_x":6.13, "sim_y":4.59}],
+    #                 ])
+    LOSS_CONFIGS = [
+        ["CIoU", "CIoU", {}],
+        ["Hausdorff in Gaussian Kernel", "Hausdorff", {"lambda1": 2.5}],
+        ["L2 in Laplacian Kernel", "l1_ext", {"lambda1": 7.0}],
+        ["HATS", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
+        ["IoU", "IoU", {}],
+    ]
+
+    plot_iou_curve(LOSS_CONFIGS)
+
     # 示例：等高线子图（每种IoU一个子图）
     iou_metrics = [
         ["GIoU", "GIoU", {}],
