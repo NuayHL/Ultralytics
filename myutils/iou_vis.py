@@ -3,37 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 
-STEP=50
-BBOX_SIZE1 = [5, 5]
-BBOX_SIZE2 = [5, 5]
-GT_BBOX = torch.tensor([120, 140, BBOX_SIZE2[0], BBOX_SIZE2[1]]).expand(STEP+1, -1)
-START_PRED_BBOX = torch.tensor([130, 150, BBOX_SIZE1[0], BBOX_SIZE1[1]]).expand(STEP+1, -1)
-coe = torch.tensor([[float(i)/STEP] for i in range(STEP+1)])
-print(coe)
-INTERP_BBOX = GT_BBOX * coe + START_PRED_BBOX * (1 - coe)
-X_RANGE = np.arange(STEP+1)
 
-def plot_iou_curve(iou_list: list):
-    iou_values = list()
-    for _, iou_type, iou_kwargs in iou_list:
-        iou_values.append(bbox_iou_ext(INTERP_BBOX, GT_BBOX,
-                                          iou_type=iou_type, iou_kargs=iou_kwargs,
-                                          xywh=True).numpy())
-
-    plt.figure(figsize=(8, 6))
-    ax = plt.gca()
-
-    for (name, _, _), iou_value in zip(iou_list, iou_values):
-        ax.plot(X_RANGE, iou_value, label=name)
-
-    ax.set_xlabel('Step', fontsize=14)
-    ax.set_ylabel('Loss Value', fontsize=14)
-    ax.grid(True, linestyle='--', alpha=0.6)
-    ax.set_xlim(0, STEP)
-    ax.set_ylim(0, 2)
-    plt.legend()
-    plt.savefig('iou_curve.png')
-    plt.show()
 
 
 def plot_iou_contour(iou_list: list, contour_levels: list = None,
@@ -274,6 +244,40 @@ def plot_iou_contour_multi_values(iou_list: list, contour_values: list = None,
     plt.tight_layout()
     plt.show()
 
+STEP=100
+# BBOX_SIZE1 = [5, 5]
+# BBOX_SIZE2 = [5, 5]
+
+BBOX_SIZE1 = [10, 10]
+BBOX_SIZE2 = [10, 10]
+GT_BBOX = torch.tensor([130, 130, BBOX_SIZE2[0], BBOX_SIZE2[1]]).expand(STEP+1, -1)
+START_PRED_BBOX = torch.tensor([150, 150, BBOX_SIZE1[0], BBOX_SIZE1[1]]).expand(STEP+1, -1)
+coe = torch.tensor([[float(i)/STEP] for i in range(STEP+1)])
+INTERP_BBOX = GT_BBOX * coe + START_PRED_BBOX * (1 - coe)
+X_RANGE = np.arange(STEP+1)
+
+def plot_iou_curve(iou_list: list):
+    iou_values = list()
+    for _, iou_type, iou_kwargs in iou_list:
+        iou_values.append(bbox_iou_ext(INTERP_BBOX, GT_BBOX,
+                                          iou_type=iou_type, iou_kargs=iou_kwargs,
+                                          xywh=True).numpy())
+
+    plt.figure(figsize=(8, 6))
+    ax = plt.gca()
+
+    for (name, _, _), iou_value in zip(iou_list, iou_values):
+        ax.plot(X_RANGE, iou_value, label=name)
+
+    ax.set_xlabel('Step', fontsize=14)
+    ax.set_ylabel('Loss Value', fontsize=14)
+    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.set_xlim(0, STEP)
+    ax.set_ylim(0, 2)
+    plt.legend()
+    plt.savefig('iou_curve.png')
+    plt.show()
+
 
 if __name__ == "__main__":
     # 原有的曲线图
@@ -301,11 +305,13 @@ if __name__ == "__main__":
     #                 # ["SimD1", "SimD",{"sim_x":6.13, "sim_y":4.59}],
     #                 ])
     LOSS_CONFIGS = [
-        ["CIoU", "CIoU", {}],
+        # ["CIoU", "CIoU", {}],
         ["Hausdorff in Gaussian Kernel", "Hausdorff", {"lambda1": 2.5}],
         ["L2 in Laplacian Kernel", "l1_ext", {"lambda1": 7.0}],
         ["HATS", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
-        ["IoU", "IoU", {}],
+        ["HATS-fix", "Hausdorff_Ext_L2_fix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 12}],
+        ["HATS-rfix", "Hausdorff_Ext_L2_rfix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
+        # ["IoU", "IoU", {}],
     ]
 
     plot_iou_curve(LOSS_CONFIGS)
@@ -326,7 +332,7 @@ if __name__ == "__main__":
         ["IoU", "IoU", {}],
         ["SimD1", "SimD", {"sim_x": 6.13, "sim_y": 4.59}],
     ]
-    plot_iou_contour(iou_metrics, bbox_size=(60, 60), grid_range=120)
+    # plot_iou_contour(iou_metrics, bbox_size=(60, 60), grid_range=120)
     #
     # 示例：叠加对比单一等高线值
     # plot_iou_contour_overlay(iou_metrics, contour_value=0.5, bbox_size=(60, 60))

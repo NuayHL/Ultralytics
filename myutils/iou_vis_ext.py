@@ -24,8 +24,8 @@ def calculate_metrics(pred_bboxes: torch.Tensor, gt_bbox: torch.Tensor) -> Dict[
             "NWD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="Hausdorff_Ext_L2", 
                                 xywh=True, iou_kargs={"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}),
             # "SimD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="SimD", xywh=True),
-            "SimD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="Hausdorff_Ext_L2_fix",
-                                xywh=True, iou_kargs={"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 12}),
+            "SimD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="Hausdorff_Ext_L2_rfix",
+                                xywh=True, iou_kargs={"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}),
             "Hausdorff": bbox_iou_ext(
                 pred_bboxes,
                 gt_bbox,
@@ -65,7 +65,7 @@ def build_phase_space(
     X, Y = np.meshgrid(norm_dists, shape_factors)
 
     # 基准 GT：正方形，使用 xywh
-    gt_s = 100.0
+    gt_s = 5
     gt_bbox = torch.tensor([[0.0, 0.0, gt_s, gt_s]], device=device, dtype=torch.float32)
     gt_diag = math.sqrt(gt_s**2 + gt_s**2)
 

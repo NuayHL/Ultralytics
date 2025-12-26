@@ -186,15 +186,23 @@ def bbox_iou_ext(
         w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
 
     if iou_type in ["l1", "l1_ext"]:
+        d2 = w2.pow(2) + h2.pow(2)
+        s2 = w2 * h2 + eps
         raw =  (torch.pow(torch.abs(b1_x1 - b2_x1).clamp(min=0), 2) +
                 torch.pow(torch.abs(b1_y1 - b2_y1).clamp(min=0), 2) +
                 torch.pow(torch.abs(b1_x2 - b2_x2).clamp(min=0), 2) +
                 torch.pow(torch.abs(b1_y2 - b2_y2).clamp(min=0), 2) )
         lambda1 = iou_kargs.get("lambda1", 0.4)
         if iou_type == "l1":
-            return torch.exp( - lambda1 * raw / (w2 * h2 + eps))
-        else:
+            print('using l1')
             return torch.exp( - lambda1 * torch.sqrt(raw) / (w2 * h2 + eps))
+            # return torch.exp( - lambda1 * torch.sqrt(raw) / (d2 + eps))
+
+        else:
+            # return torch.exp( - lambda1 * torch.sqrt(raw) / (torch.sqrt(d2) + eps))
+            func_alpha = lambda d: 0.7 + 0.3 / (1.0 + (d / 100) ** 2)
+            return torch.exp( - lambda1 * torch.sqrt(raw) / torch.pow(s2,func_alpha(s2)))
+            # return torch.exp( - lambda1 * torch.sqrt(raw) / d2 + eps)
 
     if iou_type == "NWD":
         # Calculate centers (cx, cy)
@@ -307,6 +315,7 @@ def bbox_iou_ext(
         w2 = b2_x2 - b2_x1 + eps
         h2 = b2_y2 - b2_y1 + eps
         d2 = w2.pow(2) + h2.pow(2)
+        s2 = w2 * h2 + eps
 
         # 2. Calculate squared Euclidean distances between corresponding corners
         # Ideally, we want to align TL with TL, BR with BR, etc.
@@ -343,7 +352,9 @@ def bbox_iou_ext(
                 if iou_type == "Hausdorff_Ext_L2_fix":
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / d2)
                 elif iou_type == "Hausdorff_Ext_L2_rfix":
-                    base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / torch.sqrt(w2 * h2 + eps))
+                    func_alpha = lambda d: 0.7 + 0.3 / (1.0 + (d / 100) ** 2)
+                    base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) /
+                                           torch.pow(s2, func_alpha(s2)))
                 else:
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / (w2 * h2 + eps))
             else:

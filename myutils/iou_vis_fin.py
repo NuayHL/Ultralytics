@@ -110,16 +110,20 @@ def draw_schematic(ax, scenario='horizontal'):
 # 定义你要对比的 Loss 列表
 # 格式: [Legend Name, iou_type string, kwargs]
 LOSS_CONFIGS = [
-    ["CIoU", "CIoU", {}],
+    # ["CIoU", "CIoU", {}],
     ["Hausdorff in Gaussian Kernel", "Hausdorff", {"lambda1": 2.5}],
     ["L2 in Laplacian Kernel", "l1_ext", {"lambda1": 7.0}],
+    ["L2 in Laplacian Kernel_ori", "l1", {"lambda1": 7.0}],
     ["HATS", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
+    ["HATS_rfix", "Hausdorff_Ext_L2_rfix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
     ["IoU", "IoU", {}],
 ]
 
-STRIDE = 0.2
-RANGE = 15
-BBOX_SIZE = [16, 16]
+_size = 40
+RANGE = _size * 3
+BBOX_SIZE = [_size, _size]
+STRIDE = RANGE / 1000.0
+
 # 定义 X 轴：像素偏差 (从 -30 到 30)
 DEVIATION_STEPS = np.arange(-RANGE, RANGE+1, STRIDE)  # 步长为2，产生稀疏点
 CENTER_IDX = len(DEVIATION_STEPS) // 2
