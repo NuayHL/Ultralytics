@@ -527,7 +527,7 @@ class TaskAlignedAssigner_VaryingIoU_Sep(TaskAlignedAssigner):
         return align_metric, overlaps_for_score, score_metric
 
     def iou_calculation(self, gt_bboxes, pd_bboxes, iou_type=None, iou_kwargs=None):
-        return bbox_iou_ext(gt_bboxes, pd_bboxes, xywh=False,
+        return bbox_iou_ext(pd_bboxes, gt_bboxes, xywh=False,
                             iou_type=iou_type, iou_kargs=iou_kwargs).squeeze(-1).clamp_(0)
 
 class TaskAlignedAssigner_VaryingIoU_Sep_Dynamic(TaskAlignedAssigner_VaryingIoU_Sep):

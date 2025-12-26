@@ -217,7 +217,6 @@ def bbox_iou_ext(
                 torch.pow(torch.abs(b1_y2 - b2_y2).clamp(min=0), 2) )
         lambda1 = iou_kargs.get("lambda1", 0.4)
         if iou_type == "l1":
-            print('using l1')
             return torch.exp( - lambda1 * torch.sqrt(raw) / (w2 * h2 + eps))
             # return torch.exp( - lambda1 * torch.sqrt(raw) / (d2 + eps))
 
