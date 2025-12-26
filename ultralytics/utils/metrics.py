@@ -75,6 +75,21 @@ class SmoothLSEActivation(nn.Module):
 
 area_buffer = SmoothLSEActivation()
 
+def lambda1_function(x):
+    """
+    Implements the shifted Hill function based on user constraints.
+    Formula: f(x) = y_min + (y_max - y_min) * (x^n / (x^n + k^n))
+    """
+    y_min = 0.3
+    y_max = 16.0
+    k = 16.0  # Semi-saturation point (controls where the curve is at 50% rise)
+    n = 3.0  # Hill coefficient (controls steepness)
+
+    # Calculate the ratio part
+    ratio = torch.pow(x, n) / (torch.pow(x, n) + math.pow(k, n))
+
+    return y_min + (y_max - y_min) * ratio
+
 def box_iou(box1: torch.Tensor, box2: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:
     """
     Calculate intersection-over-union (IoU) of boxes.
@@ -208,6 +223,9 @@ def bbox_iou_ext(
         w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
         w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
 
+    # print("gt_area_avg. :", (w2 * h2 + eps).mean())
+    # print("pred_area_avg. :", (w1 * h1 + eps).mean())
+
     if iou_type in ["l1", "l1_ext"]:
         d2 = w2.pow(2) + h2.pow(2)
         s2 = w2 * h2 + eps
@@ -318,6 +336,7 @@ def bbox_iou_ext(
         return torch.pow(iou, iou_kargs.get("alpha", 0.5))
 
     if iou_type in ["Hausdorff",
+                    "Hausdorff_dy",
                     "Hausdorff_Ext_IoU",
                     "Hausdorff_Ext_L2",
                     "Hausdorff_Ext_L2_rfix",
@@ -331,8 +350,7 @@ def bbox_iou_ext(
         # cw = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)  # convex width
         # ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)  # convex height
         # c2 = cw.pow(2) + ch.pow(2) + eps  # convex diagonal squared
-        lambda1 = iou_kargs.get("lambda1", 1)
-        lambda2 = iou_kargs.get("lambda2", 1)
+
 
         w2 = b2_x2 - b2_x1 + eps
         h2 = b2_y2 - b2_y1 + eps
@@ -359,6 +377,13 @@ def bbox_iou_ext(
         # This acts as a drop-in replacement for DIoU/CIoU.
         # If perfect match: IoU=1, d_h=0 -> returns 1.0
         # If far away: IoU=0, d_h -> max -> returns negative value (penalty).
+        if iou_type == "Hausdorff_dy":
+            lambda1_dy = lambda1_function(torch.sqrt(s2))
+            return torch.exp( - lambda1_dy * d_h_sq / d2 )
+
+        lambda1 = iou_kargs.get("lambda1", 1)
+        lambda2 = iou_kargs.get("lambda2", 1)
+
         hiou = torch.exp( - lambda1 * d_h_sq / torch.pow(d2, lambda2) )
         
         if iou_type in ["Hausdorff_Ext_IoU", "Hausdorff_Ext_L2", "Hausdorff_Ext_L2_fix", "Hausdorff_Ext_L2_rfix"]:
@@ -390,6 +415,7 @@ def bbox_iou_ext(
 
             final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
             return final_metric
+
         elif iou_type == "Hausdorff":
             return hiou
         elif iou_type == "Hausdorff_test":

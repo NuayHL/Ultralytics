@@ -173,13 +173,29 @@ if __name__ == "__main__":
             # torch.logaddexp avoids overflow when exponentials are large
             return torch.logaddexp(quad_part, linear_part).numpy()
 
+
+    def designed_function(x):
+        """
+        Implements the shifted Hill function based on user constraints.
+        Formula: f(x) = y_min + (y_max - y_min) * (x^n / (x^n + k^n))
+        """
+        y_min = 0.3
+        y_max = 16.0
+        k = 16.0  # Semi-saturation point (controls where the curve is at 50% rise)
+        n = 3.0  # Hill coefficient (controls steepness)
+
+        # Calculate the ratio part
+        ratio = np.power(x, n) / (np.power(x, n) + np.power(k, n))
+
+        return y_min + (y_max - y_min) * ratio
+
     func_list = [
 
-        ['x^2+buff', lambda x: x**2 + 20 * (1 - np.sqrt(x + 2)/5)],
-        ['x^2', lambda x: x ** 2],
-        ['x^2+ext', modified_activation],
-        ['x^2+ext1', SmoothLSEActivation()]
+        # ['x^2+buff', lambda x: x**2 + 20 * (1 - np.sqrt(x + 2)/5)],
+        # ['x^2', lambda x: x ** 2],
+        ['test', designed_function],
+        # ['x^2+ext1', SmoothLSEActivation()]
     ]
 
     # plot_functions(func_list, (eps, 100), 1, log_x=True)
-    plot_functions(func_list, (eps, 10), 0.1,)
+    plot_functions(func_list, (eps, 72), 0.1,)

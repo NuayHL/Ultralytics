@@ -43,6 +43,7 @@ def get_loss_values(loss_list, fixed_bbox, moving_bbox_sequence):
         # 调用 ultralytics 的接口
         # 注意：这里我们假设 bbox_iou_ext 返回的是 tensor
         value_tensor = bbox_iou_ext(moving_bbox_sequence, gt_bboxes, iou_type=iou_type, iou_kargs=kwargs, xywh=True)
+        # value_tensor = bbox_iou_ext(gt_bboxes, moving_bbox_sequence, iou_type=iou_type, iou_kargs=kwargs, xywh=True)
 
         vals = value_tensor.numpy()
 
@@ -111,16 +112,21 @@ def draw_schematic(ax, scenario='horizontal'):
 # 格式: [Legend Name, iou_type string, kwargs]
 LOSS_CONFIGS = [
     ["CIoU", "CIoU", {}],
-    ["Hausdorff in Gaussian Kernel", "Hausdorff", {"lambda1": 2.5}],
-    ["L2 in Laplacian Kernel", "l1_ext", {"lambda1": 7.0}],
+    ["Hausdorff in Gaussian Kernel", "Hausdorff", {"lambda1": 30}],
+    ["Hausdorff in Gaussian Kernel1", "Hausdorff", {"lambda1": 12}],
+    # ["L2 in Laplacian Kernel", "l1_ext", {"lambda1": 7.0}],
     ["L2 in Laplacian Kernel_ori", "l1", {"lambda1": 7.0}],
-    ["HATS", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
-    ["HATS_rfix", "Hausdorff_Ext_L2_rfix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
+    # ["HATS", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
+    # ["HATS_rfix", "Hausdorff_Ext_L2_rfix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
+    ["NWD", "NWD", {"nwd_c": 12}],
+    ["SimD", "SimD", {"sim_x": 6.13, "sim_y": 4.59}],
     # ["IoU", "IoU", {}],
 ]
 
-_size = 40
+_size = 32
+_size_gt = _size
 RANGE = _size * 3
+GT_BBOX_SIZE = [_size_gt, _size_gt]
 BBOX_SIZE = [_size, _size]
 STRIDE = RANGE / 1000.0
 
@@ -129,7 +135,7 @@ DEVIATION_STEPS = np.arange(-RANGE, RANGE+1, STRIDE)  # 步长为2，产生稀�
 CENTER_IDX = len(DEVIATION_STEPS) // 2
 
 # 创建 GT Box (中心点 100, 100, 宽高 40, 40)
-GT_BOX_TENSOR = torch.tensor([[100.0, 100.0, BBOX_SIZE[0], BBOX_SIZE[1]]])
+GT_BOX_TENSOR = torch.tensor([[100.0, 100.0, GT_BBOX_SIZE[0], GT_BBOX_SIZE[1]]])
 
 # --- 场景 A 数据生成: 纯水平移动 ---
 bboxes_horizontal = []
