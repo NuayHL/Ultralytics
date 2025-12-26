@@ -201,7 +201,7 @@ def bbox_iou_ext(
 
         else:
             # return torch.exp( - lambda1 * torch.sqrt(raw) / (torch.sqrt(d2) + eps))
-            func_alpha = lambda d: 0.7 + 0.3 / (1.0 + (d / 100) ** 2)
+            func_alpha = lambda d: 0.8 + 0.2 / (1.0 + (d / 100) ** 2)
             return torch.exp( - lambda1 * torch.sqrt(raw) / torch.pow(s2,func_alpha(s2)))
             # return torch.exp( - lambda1 * torch.sqrt(raw) / d2 + eps)
 
@@ -353,7 +353,8 @@ def bbox_iou_ext(
                 if iou_type == "Hausdorff_Ext_L2_fix":
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / d2)
                 elif iou_type == "Hausdorff_Ext_L2_rfix":
-                    func_alpha = lambda d: 0.7 + 0.3 / (1.0 + (d / 100) ** 2)
+                    # func_alpha = lambda d: 0.7 + 0.3 / (1.0 + (d / 100) ** 2) # 70 and 73
+                    func_alpha = lambda d: 0.8 + 0.2 / (1.0 + (d / 100) ** 2)
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) /
                                            torch.pow(s2, func_alpha(s2)))
                 else:
@@ -361,7 +362,9 @@ def bbox_iou_ext(
             else:
                 raise ValueError(f"Invalid iou_type {iou_type}.")
             if iou_type == "Hausdorff_Ext_L2_rfix":
-                pow_value = pow_value * (8 / torch.sqrt(s2))
+                # no # 70
+                # pow_value = pow_value  * (8 / torch.sqrt(s2)) # 73
+                pow_value = (pow_value - 0.5) * (8 / torch.sqrt(s2)) + 0.5
                 final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
             else:
                 final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
