@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import math
 import torch
 
 from ultralytics.utils import LOGGER, DataExportMixin, SimpleClass, TryExcept, checks, plt_settings
@@ -359,7 +360,11 @@ def bbox_iou_ext(
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / (w2 * h2 + eps))
             else:
                 raise ValueError(f"Invalid iou_type {iou_type}.")
-            final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
+            if iou_type == "Hausdorff_Ext_L2_rfix":
+                pow_value = pow_value * (8 / torch.sqrt(s2))
+                final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
+            else:
+                final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
             return final_metric
         elif iou_type == "Hausdorff":
             return hiou

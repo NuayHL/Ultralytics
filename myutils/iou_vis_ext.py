@@ -65,7 +65,7 @@ def build_phase_space(
     X, Y = np.meshgrid(norm_dists, shape_factors)
 
     # 基准 GT：正方形，使用 xywh
-    gt_s = 5
+    gt_s = 100.0
     gt_bbox = torch.tensor([[0.0, 0.0, gt_s, gt_s]], device=device, dtype=torch.float32)
     gt_diag = math.sqrt(gt_s**2 + gt_s**2)
 

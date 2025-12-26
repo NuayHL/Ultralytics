@@ -212,7 +212,7 @@ def plot_custom_histogram(file_path, custom_bin_edges):
         print(f"An error occurred: {e}")
 
 if __name__ == '__main__':
-    path_to_npy_file = 'visdrone_val_area_letterbox.npy'
+    path_to_npy_file = 'aitodv2_coco_val_area_letterbox.npy'
     npy_check(path_to_npy_file)
 
     plot_histogram_from_npy(path_to_npy_file, num_bins=50)

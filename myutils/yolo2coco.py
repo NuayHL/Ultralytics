@@ -94,40 +94,54 @@ if __name__ == "__main__":
     #            'motor',
     #            ]
 
-    classes = [
-        "others",
-        "aeroplane",
-        "bicycle",
-        "bird",
-        "boat",
-        "bottle",
-        "bus",
-        "car",
-        "cat",
-        "chair",
-        "cow",
-        "diningtable",
-        "dog",
-        "horse",
-        "motorbike",
-        "person",
-        "pottedplant",
-        "sheep",
-        "sofa",
-        "train",
-        "tvmonitor"
-    ]
+    # classes = [
+    #     "others",
+    #     "aeroplane",
+    #     "bicycle",
+    #     "bird",
+    #     "boat",
+    #     "bottle",
+    #     "bus",
+    #     "car",
+    #     "cat",
+    #     "chair",
+    #     "cow",
+    #     "diningtable",
+    #     "dog",
+    #     "horse",
+    #     "motorbike",
+    #     "person",
+    #     "pottedplant",
+    #     "sheep",
+    #     "sofa",
+    #     "train",
+    #     "tvmonitor"
+    # ]
 
-    # image_path="../../datasets/VisDrone/VisDrone2019-DET-test-val/images"
-    # label_path="../../datasets/VisDrone/VisDrone2019-DET-test-val/labels"
+    # image_path="../../datasets/VisDrone/VisDrone2019-DET-val/images"
+    # label_path="../../datasets/VisDrone/VisDrone2019-DET-val/labels"
 
-    image_path="../../datasets/VOC/images/test2007"
-    label_path="../../datasets/VOC/labels/test2007"
-    save_path='voc_coco_test_letterbox.json'
+    # image_path="../../datasets/VOC/images/test2007"
+    # label_path="../../datasets/VOC/labels/test2007"
+    # save_path='visdrone_coco_val.json'
+
+    # classes = ['others', 'Person', 'Car', 'Bicycle', 'OtherVehicle', 'DontCare']
+    # image_path = "../../datasets/HIT-UAV/images/val"
+    # label_path = "../../datasets/HIT-UAV/labels/val"
+    # save_path = "hituav_coco_val.json"
+    # area_save = "hituav_coco_val_area.npy"
+
+    classes = ['others', 'airplane', 'bridge', 'storage-tank', 'ship', 'swimming-pool',
+               'vehicle', 'person', 'wind-mill']
+    image_path = "../../datasets/ai-todv2/images/val"
+    label_path = "../../datasets/ai-todv2/labels/val"
+    save_path = "aitodv2_coco_val.json"
+    area_save = "aitodv2_coco_val_area_letterbox.npy"
+
     yolo2coco(image_path=image_path,
               label_path=label_path,
               save_path=save_path,
               classes=classes,
               use_letterbox=True,
               input_imgsize=640,
-              area_save='voc_test_area_letterbox.npy')
+              area_save=area_save)
