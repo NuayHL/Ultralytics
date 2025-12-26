@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import math
 import torch
+import torch.nn as nn
 
 from ultralytics.utils import LOGGER, DataExportMixin, SimpleClass, TryExcept, checks, plt_settings
 
@@ -52,6 +53,27 @@ def bbox_ioa(box1: np.ndarray, box2: np.ndarray, iou: bool = False, eps: float =
     # Intersection over box2 area
     return inter_area / (area + eps)
 
+
+
+class SmoothLSEActivation(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.slope = 0.1
+        self.bias = 20.0
+
+    def forward(self, x):
+        """
+        Implements f(x) = SoftMax(x^2, 1.5x + 16)
+        Using logaddexp for numerical stability:
+        log(exp(x^2) + exp(1.5x + 16))
+        """
+        quad_part = x ** 2
+        linear_part = self.slope * x ** 2 + self.bias
+
+        # torch.logaddexp avoids overflow when exponentials are large
+        return torch.logaddexp(quad_part, linear_part)
+
+area_buffer = SmoothLSEActivation()
 
 def box_iou(box1: torch.Tensor, box2: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:
     """
@@ -201,7 +223,7 @@ def bbox_iou_ext(
 
         else:
             # return torch.exp( - lambda1 * torch.sqrt(raw) / (torch.sqrt(d2) + eps))
-            func_alpha = lambda d: 0.8 + 0.2 / (1.0 + (d / 100) ** 2)
+            func_alpha = lambda d: 0.9 + 0.1 / (1.0 + (d / 100) ** 2)
             return torch.exp( - lambda1 * torch.sqrt(raw) / torch.pow(s2,func_alpha(s2)))
             # return torch.exp( - lambda1 * torch.sqrt(raw) / d2 + eps)
 
@@ -354,20 +376,20 @@ def bbox_iou_ext(
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / d2)
                 elif iou_type == "Hausdorff_Ext_L2_rfix":
                     # func_alpha = lambda d: 0.7 + 0.3 / (1.0 + (d / 100) ** 2) # 70 and 73
-                    func_alpha = lambda d: 0.8 + 0.2 / (1.0 + (d / 100) ** 2)
-                    base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) /
-                                           torch.pow(s2, func_alpha(s2)))
+                    func_alpha = lambda d: 0.9 + 0.1 / (1.0 + (d / 100) ** 2)
+                    # base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) /
+                    #                        torch.pow(s2, func_alpha(s2)))
+                    base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / area_buffer(torch.sqrt(s2)))
                 else:
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / (w2 * h2 + eps))
             else:
                 raise ValueError(f"Invalid iou_type {iou_type}.")
-            if iou_type == "Hausdorff_Ext_L2_rfix":
-                # no # 70
-                # pow_value = pow_value  * (8 / torch.sqrt(s2)) # 73
-                pow_value = (pow_value - 0.5) * (8 / torch.sqrt(s2)) + 0.5
-                final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
-            else:
-                final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
+            # if iou_type == "Hausdorff_Ext_L2_rfix":
+            #     # no # 70
+            #     # pow_value = pow_value  * (8 / torch.sqrt(s2)) # 73
+            #     pow_value = (pow_value - 1) * (8 / torch.sqrt(s2)) + 1
+
+            final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
             return final_metric
         elif iou_type == "Hausdorff":
             return hiou

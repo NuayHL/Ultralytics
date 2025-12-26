@@ -119,7 +119,7 @@ LOSS_CONFIGS = [
     # ["IoU", "IoU", {}],
 ]
 
-_size = 16
+_size = 40
 RANGE = _size * 3
 BBOX_SIZE = [_size, _size]
 STRIDE = RANGE / 1000.0

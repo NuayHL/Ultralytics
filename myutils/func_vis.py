@@ -122,6 +122,8 @@ def plot_functions(
 
 if __name__ == "__main__":
     import torch
+    import torch.nn as nn
+    import numpy as np
 
     ls = 30
     d0 = 10
@@ -132,15 +134,52 @@ if __name__ == "__main__":
     alpha1 = lambda d: 0.9 + 0.1 / (1.0 + (d / d0) ** p)
 
     eps = 1e-6
+    # func_list = [
+    #     ['test', lambda area: (1 - area**p / (area**p + 36**p)) * area \
+    #         + (area**p / (area**p + 36**p)) * np.sqrt(area + eps) ],
+    #     ['1/2', lambda area: np.sqrt(area + eps)],
+    #     ['x', lambda x: x],
+    #     ['test1', test1 ],
+    #     ['alpha', alpha],
+    #     ['alpha1', alpha1]
+    # ]
+
+    def modified_activation(x):
+        # Use np.where for vectorized conditional logic
+        # Condition: x < 5
+        # True:  1.8 * x + 16
+        # False: x ** 2
+        return np.where(x < 5, 1.8 * x + 16, x ** 2)
+
+
+    class SmoothLSEActivation(nn.Module):
+        def __init__(self):
+            super().__init__()
+            # We can make the linear parameters learnable if needed,
+            # but here we fix them as per your constraints.
+            self.slope = 0.1
+            self.bias = 20.0
+
+        def forward(self, x):
+            """
+            Implements f(x) = SoftMax(x^2, 1.5x + 16)
+            Using logaddexp for numerical stability:
+            log(exp(x^2) + exp(1.5x + 16))
+            """
+            x = torch.tensor(x)
+            quad_part = x ** 2
+            linear_part = self.slope * x ** 2 + self.bias
+
+            # torch.logaddexp avoids overflow when exponentials are large
+            return torch.logaddexp(quad_part, linear_part).numpy()
+
     func_list = [
-        ['test', lambda area: (1 - area**p / (area**p + 36**p)) * area \
-            + (area**p / (area**p + 36**p)) * np.sqrt(area + eps) ],
-        ['1/2', lambda area: np.sqrt(area + eps)],
-        ['x', lambda x: x],
-        ['test1', test1 ],
-        ['alpha', alpha],
-        ['alpha1', alpha1]
+
+        ['x^2+buff', lambda x: x**2 + 20 * (1 - np.sqrt(x + 2)/5)],
+        ['x^2', lambda x: x ** 2],
+        ['x^2+ext', modified_activation],
+        ['x^2+ext1', SmoothLSEActivation()]
     ]
 
     # plot_functions(func_list, (eps, 100), 1, log_x=True)
-    plot_functions(func_list, (eps, 100), 1,)
+    plot_functions(func_list, (eps, 10), 0.1,)
