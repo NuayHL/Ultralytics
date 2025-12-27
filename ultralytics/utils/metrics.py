@@ -189,6 +189,7 @@ def bbox_iou_ext(
     xywh: bool = True,
     iou_type: str = "CIoU",
     iou_kargs: dict = {},
+    runtime_kargs: dict = {},
     eps: float = 1e-7,
 ) -> torch.Tensor:
     """
@@ -351,11 +352,13 @@ def bbox_iou_ext(
         # ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)  # convex height
         # c2 = cw.pow(2) + ch.pow(2) + eps  # convex diagonal squared
 
-
-        w2 = b2_x2 - b2_x1 + eps
-        h2 = b2_y2 - b2_y1 + eps
-        d2 = w2.pow(2) + h2.pow(2)
-        s2 = w2 * h2 + eps
+        gt_pd_reverse = iou_kargs.get("gt_pd_reverse", False)
+        if gt_pd_reverse:
+            d2 = w1.pow(2) + h1.pow(2)
+            s2 = w1 * h1 + eps
+        else:
+            d2 = w2.pow(2) + h2.pow(2)
+            s2 = w2 * h2 + eps
 
         # 2. Calculate squared Euclidean distances between corresponding corners
         # Ideally, we want to align TL with TL, BR with BR, etc.
@@ -412,8 +415,10 @@ def bbox_iou_ext(
             #     # no # 70
             #     # pow_value = pow_value  * (8 / torch.sqrt(s2)) # 73
             #     pow_value = (pow_value - 1) * (8 / torch.sqrt(s2)) + 1
-
-            final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
+            if iou_kargs.get("lg_reverse", False):
+                final_metric = (1 - torch.pow(1 - base_dist, pow_value)) * hiou + torch.pow(1 - base_dist, pow_value) * base_dist
+            else:
+                final_metric = (1 - torch.pow(base_dist, pow_value)) * hiou + torch.pow(base_dist, pow_value + 1)
             return final_metric
 
         elif iou_type == "Hausdorff":

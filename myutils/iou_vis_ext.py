@@ -13,19 +13,22 @@ def calculate_metrics(pred_bboxes: torch.Tensor, gt_bbox: torch.Tensor) -> Dict[
     with torch.no_grad():
         metrics = {
             "IoU": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="IoU", xywh=True),
-            "GIoU": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="GIoU", xywh=True),
-            "DIoU": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="DIoU", xywh=True),
+            # "GIoU": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="GIoU", xywh=True),
+            # "DIoU": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="DIoU", xywh=True),
             "CIoU": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="CIoU", xywh=True),
-            "SIoU": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="SIoU", xywh=True),
-            "PIoU": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="PIoU", xywh=True),
-            "AlphaIoU": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="AlphaIoU", xywh=True, iou_kargs={"alpha": 0.3}),
+            # "SIoU": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="SIoU", xywh=True),
+            # "PIoU": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="PIoU", xywh=True),
+            "Hausdorff_dy": bbox_iou_ext(
+                pred_bboxes,
+                gt_bbox,
+                iou_type="Hausdorff_dy",
+                xywh=True,
+                iou_kargs={"lambda1": 2.5, "lambda2": 1.0},
+            ),
             "L1": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="l1", xywh=True, iou_kargs={"lambda1": 0.8}),
-            # "NWD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="NWD", xywh=True, iou_kargs={"nwd_c": 12}),
-            "NWD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="Hausdorff_Ext_L2", 
-                                xywh=True, iou_kargs={"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}),
+            "NWD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="NWD", xywh=True, iou_kargs={"nwd_c": 12}),
             # "SimD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="SimD", xywh=True),
-            "SimD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="Hausdorff_Ext_L2_rfix",
-                                xywh=True, iou_kargs={"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}),
+            "SimD": bbox_iou_ext(pred_bboxes, gt_bbox, iou_type="SimD", xywh=True, iou_kargs={"sim_x": 6.13, "sim_y": 4.59}),
             "Hausdorff": bbox_iou_ext(
                 pred_bboxes,
                 gt_bbox,
@@ -65,7 +68,7 @@ def build_phase_space(
     X, Y = np.meshgrid(norm_dists, shape_factors)
 
     # 基准 GT：正方形，使用 xywh
-    gt_s = 100.0
+    gt_s = 8
     gt_bbox = torch.tensor([[0.0, 0.0, gt_s, gt_s]], device=device, dtype=torch.float32)
     gt_diag = math.sqrt(gt_s**2 + gt_s**2)
 
@@ -109,7 +112,7 @@ def _auto_levels(Z: np.ndarray, num: int = 21) -> np.ndarray:
 def plot_phase_space_sensitivity(
     grid_res: int = 120,
     angles_deg: Iterable[float] = (0.0, 15.0, 30.0, 45.0, ),
-    metrics_to_plot: Iterable[str] = ("IoU", "GIoU", "DIoU", "NWD", "SimD", "Hausdorff", "CIoU", "SIoU", "PIoU", "L1", "AlphaIoU"),
+    # metrics_to_plot: Iterable[str] = ("IoU", "GIoU", "DIoU", "NWD", "SimD", "Hausdorff", "CIoU", "SIoU", "PIoU", "L1", "AlphaIoU"),
     dist_max: float = 1.5,
     shape_range: Tuple[float, float] = (0.2, 1.8),
     save_prefix: str = "similarity_phase_space",
@@ -130,6 +133,8 @@ def plot_phase_space_sensitivity(
     X, Y, all_results = build_phase_space(
         grid_res=grid_res, angles_deg=angles_deg, dist_max=dist_max, shape_range=shape_range, device='cuda'
     )
+
+    metrics_to_plot = all_results[angles_deg[0]].keys()
 
     for metric in metrics_to_plot:
         fig, axes = plt.subplots(1, len(angles_deg), figsize=(5 * len(angles_deg), 4), sharex=True, sharey=True)
