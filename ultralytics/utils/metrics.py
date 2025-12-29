@@ -352,13 +352,13 @@ def bbox_iou_ext(
         # ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)  # convex height
         # c2 = cw.pow(2) + ch.pow(2) + eps  # convex diagonal squared
 
-        gt_pd_reverse = iou_kargs.get("gt_pd_reverse", False)
-        if gt_pd_reverse:
-            d2 = w1.pow(2) + h1.pow(2)
-            s2 = w1 * h1 + eps
-        else:
-            d2 = w2.pow(2) + h2.pow(2)
-            s2 = w2 * h2 + eps
+        # gt_pd_reverse = iou_kargs.get("gt_pd_reverse", True)
+        # if gt_pd_reverse:
+        #     d2 = w1.pow(2) + h1.pow(2)
+        #     s2 = w1 * h1 + eps
+        # else:
+        d2 = w2.pow(2) + h2.pow(2)
+        s2 = w2 * h2 + eps
 
         # 2. Calculate squared Euclidean distances between corresponding corners
         # Ideally, we want to align TL with TL, BR with BR, etc.

@@ -24,7 +24,8 @@ from ultralytics.utils.mla_dab import (TaskAlignedAssigner_dab,
                                        TaskAlignedAssigner_dynamicJoint_v1,
                                        TaskAlignedAssigner_VaryingIoU,
                                        TaskAlignedAssigner_VaryingIoU_Sep,
-                                       TaskAlignedAssigner_VaryingIoU_Sep_Dynamic)
+                                       TaskAlignedAssigner_VaryingIoU_Sep_Dynamic,
+                                       TaskAlignedAssigner_VaryingIoU_Sep_Scale)
 from ultralytics.utils.mla_scale import TaskAlignedAssigner_dScale
 from ultralytics.utils.tal import TaskAlignedAssigner
 from ultralytics.utils.mla_basic import FCOSAssigner, SimOTAAssigner
@@ -41,7 +42,8 @@ ASSIGN_USE_STRIDE = (TaskAlignedAssigner_Scale,
                      TaskAlignedAssigner_Scale_dynamicK,
                      TaskAlignedAssigner_Scale_abtest,
                      TaskAlignedAssigner_dScale,
-                     TaskAlignedAssigner_dynamicJoint_v1)
+                     TaskAlignedAssigner_dynamicJoint_v1,
+                     TaskAlignedAssigner_VaryingIoU_Sep_Scale)
 
 # bce1 is a mistake so did not add in it
 ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
@@ -113,7 +115,15 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
             _kwargs['score_iou_type'] = cfg.get("score_iou_type", "CIoU")
             _kwargs['score_iou_kwargs'] = cfg.get("score_iou_kwargs", {})
             assigner = TaskAlignedAssigner_VaryingIoU_Sep(**_kwargs)
-            
+
+        elif assigner_type == "TaskAlignedAssigner_VaryingIoU_Sep_Scale":
+            _kwargs['align_iou_type'] = cfg.get("align_iou_type", "CIoU")
+            _kwargs['align_iou_kwargs'] = cfg.get("align_iou_kwargs", {})
+            _kwargs['score_iou_type'] = cfg.get("score_iou_type", "CIoU")
+            _kwargs['score_iou_kwargs'] = cfg.get("score_iou_kwargs", {})
+            _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+            assigner = TaskAlignedAssigner_VaryingIoU_Sep_Scale(**_kwargs)
+
         elif assigner_type == "TaskAlignedAssigner_VaryingIoU_Sep_Dynamic":
             _kwargs['align_iou_type'] = cfg.get("align_iou_type", "CIoU")
             _kwargs['align_iou_kwargs'] = cfg.get("align_iou_kwargs", {})
