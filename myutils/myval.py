@@ -76,8 +76,8 @@ def print_info(metrics_dicts):
 if __name__ == "__main__":
     print_info(
     format_metrics(
-        model_path='../v12n_visdrone_df.pt',
-        data_path='../ultralytics/cfg/datasets/hit-uav.yaml',
+        model_path='../runs/detect/visdrone/v12s_record/weights/epoch0.pt',
+        data_path='../ultralytics/cfg/datasets/VisDrone.yaml',
         name='test/test',
         batch=16,
         imgsz=640,

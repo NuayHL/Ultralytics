@@ -416,21 +416,20 @@ class v8DetectionLoss:
             (self.reg_max * 4, self.nc), 1
         )
 
-        # -------------------------------------------------------
-        bs = feats[0].shape[0]
-        dfl_probs = pred_distri.view(bs, -1, 4, self.reg_max).detach().softmax(-1)
-        values = self.proj.view(1, 1, 1, -1)
-        # Compute Expectation E[X] (The predicted coordinate, unscaled)
-        mu = (dfl_probs * values).sum(-1) # [B, A, 4]
-        # Compute Expectation of Square E[X^2]
-        mu_squared = (dfl_probs * values.pow(2)).sum(-1) # [B, A, 4]
-        # Compute Variance Var(X) = E[X^2] - (E[X])^2
-        # shape: [B, A, 4] (Variance for Left, Top, Right, Bottom)
-        variance = mu_squared - mu.pow(2)
-        # We can take the mean variance across 4 coordinates.
-        u_raw = variance.mean(-1) # [B, A]
-        print(f"batch_var_mean: {u_raw.mean()}")
-        # -------------------------------------------------------
+        # # -------------------------------------------------------
+        # bs = feats[0].shape[0]
+        # dfl_probs = pred_distri.view(bs, -1, 4, self.reg_max).detach().softmax(-1)
+        # values = self.proj.view(1, 1, 1, -1)
+        # # Compute Expectation E[X] (The predicted coordinate, unscaled)
+        # mu = (dfl_probs * values).sum(-1) # [B, A, 4]
+        # # Compute Expectation of Square E[X^2]
+        # mu_squared = (dfl_probs * values.pow(2)).sum(-1) # [B, A, 4]
+        # # Compute Variance Var(X) = E[X^2] - (E[X])^2
+        # # shape: [B, A, 4] (Variance for Left, Top, Right, Bottom)
+        # variance = mu_squared - mu.pow(2)
+        # # We can take the mean variance across 4 coordinates.
+        # u_raw = variance.mean(-1) # [B, A]
+        # # -------------------------------------------------------
 
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
         pred_distri = pred_distri.permute(0, 2, 1).contiguous()
@@ -472,6 +471,12 @@ class v8DetectionLoss:
             stride = -_stride if self.assigner_use_stride_input else None,
             feature_map_size = feature_map_size,
         )
+
+        # # ---------------------------------------------------
+        # print(f"Valid num pred: {fg_mask.sum():.0f}", end=' || ')
+        # u_raw = u_raw * fg_mask
+        # print(f"batch_var_mean: {u_raw.sum()/fg_mask.sum():.4f}")
+        # # ---------------------------------------------------
 
         target_scores_sum = max(target_scores.sum(), 1)
 
@@ -533,15 +538,14 @@ class v8DetectionLoss_subnet_mk1(v8DetectionLoss):
 
         # We can take the mean variance across 4 coordinates.
         u_raw = variance.mean(-1) # [B, A]
-
-        print(f"batch_var_mean: {u_raw.mean()}")
+        pred_coefs = self.uncertainty_ab(u_raw)
         # TBD
         # -----------------------------
-        if pd_coefs is not None:
-            pred_coefs = torch.cat([xi.view(bs, sub_ch, -1) for xi in pd_coefs], 2)
-            pred_coefs = pred_coefs.permute(0, 2, 1).contiguous()
-        else:
-            pred_coefs = None
+        # if pd_coefs is not None:
+        #     pred_coefs = torch.cat([xi.view(bs, sub_ch, -1) for xi in pd_coefs], 2)
+        #     pred_coefs = pred_coefs.permute(0, 2, 1).contiguous()
+        # else:
+        #     pred_coefs = None
         # -----------------------------
 
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
@@ -604,6 +608,20 @@ class v8DetectionLoss_subnet_mk1(v8DetectionLoss):
         loss[2] *= self.hyp.dfl  # dfl gain
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+
+    def uncertainty_ab(self, uncertainty):
+        """
+        uncertainty: [bs, n_anchors]
+        """
+        base_alpha = 0.5
+        max_alpha = 1.5
+        base_beta = 6.0
+        min_beta = 2.0
+        temp_tau = 2.0
+        u_norm = torch.tanh(uncertainty / temp_tau)
+        u_alpha = base_alpha + (max_alpha - base_alpha) * u_norm
+        u_beta = base_beta + (min_beta - base_beta) * u_norm
+        return torch.stack([u_alpha, u_beta], dim=2)
 
 class v8DetectionLoss_subnet(v8DetectionLoss):
     def __init__(self, model, cfg: dict, tal_topk: int = 10):  # model must be de-paralleled
