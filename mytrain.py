@@ -190,23 +190,44 @@ if __name__ == "__main__":
         #      trainer=None),
     # ]
 
+    # EXP_LIST = [
+    #     dict(exp_name="v12s_assign4ciou_align_hausdorff_dy",
+    #          extra_tags=["v12", "v12s", "new_align"],
+    #          model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_dy.yaml",
+    #          trainer=None,),
+    # ]
+
     EXP_LIST = [
-        dict(exp_name="v12s_assign4ciou_align_hausdorff_dy",
-             extra_tags=["v12", "v12s", "new_align"],
-             model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_dy.yaml",
-             trainer=None,),
+        # dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_pow4_7",
+        #      extra_tags=["v12", "v12s",],
+        #      model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_pow4_7.yaml",
+        #      trainer=None,),
+        dict(exp_name="v12s_none",
+             extra_tags=["v12", "v12s", "baseline"],
+             model_yaml="cfg/learnable/yolo12s_none.yaml",
+             trainer=None, ),
+        # dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_rfix_pow4_7_mean.yaml",
+        #      extra_tags=["v12", "v12s", ],
+        #      model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_rfix_pow4_7_mean.yaml",
+        #      trainer=None, ),
+
+        # dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_rfix_pow4_7_3_30",
+        #      extra_tags=["v12", "v12s", ],
+        #      model_yaml="cfg/assign_iou/search/yolo12s_assign4ciou_align_hausdorff_ext_l2_rfix_pow4_7_3_30.yaml",
+        #      trainer=None, ),
     ]
 
-    EXP_PREFIX = "visdrone"
-    DATA_YAML = "ultralytics/cfg/datasets/VisDrone.yaml"
+
+    EXP_PREFIX = "hituav"
+    DATA_YAML = "ultralytics/cfg/datasets/hit-uav.yaml"
     main(
         exp_prefix=EXP_PREFIX,
         data_yaml=DATA_YAML,
         exp_list=EXP_LIST
     )
 
-    EXP_PREFIX = "hituav"
-    DATA_YAML = "ultralytics/cfg/datasets/hit-uav.yaml"
+    EXP_PREFIX = "visdrone"
+    DATA_YAML = "ultralytics/cfg/datasets/VisDrone.yaml"
     main(
         exp_prefix=EXP_PREFIX,
         data_yaml=DATA_YAML,

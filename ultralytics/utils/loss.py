@@ -14,7 +14,8 @@ from ultralytics.utils.metrics import OKS_SIGMA
 from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
 from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigner, dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import autocast, disable_dynamo
-from .assignment import get_task_aligned_assigner, ASSIGN_USE_STRIDE, ASSIGN_USE_LOGIST, ASSIGN_USE_HBG
+from .assignment import (get_task_aligned_assigner, ASSIGN_USE_STRIDE,
+                         ASSIGN_USE_LOGIST, ASSIGN_USE_HBG, ASSIGN_USE_SUBNET)
 
 from .metrics import bbox_iou, probiou, bbox_iou_ext
 from .tal import bbox2dist
@@ -26,6 +27,10 @@ def get_detection_loss(cfg):
         return v8DetectionLoss
     elif loss_name == 'dflbg':
         return v8DetectionLoss_dflbg
+    elif loss_name == 'subnet':
+        return v8DetectionLoss_subnet
+    elif loss_name == 'subnet_mk1':
+        return v8DetectionLoss_subnet_mk1
     else:
         raise ValueError(f'Unknown loss name: {loss_name}')
 
@@ -411,6 +416,22 @@ class v8DetectionLoss:
             (self.reg_max * 4, self.nc), 1
         )
 
+        # -------------------------------------------------------
+        bs = feats[0].shape[0]
+        dfl_probs = pred_distri.view(bs, -1, 4, self.reg_max).detach().softmax(-1)
+        values = self.proj.view(1, 1, 1, -1)
+        # Compute Expectation E[X] (The predicted coordinate, unscaled)
+        mu = (dfl_probs * values).sum(-1) # [B, A, 4]
+        # Compute Expectation of Square E[X^2]
+        mu_squared = (dfl_probs * values.pow(2)).sum(-1) # [B, A, 4]
+        # Compute Variance Var(X) = E[X^2] - (E[X])^2
+        # shape: [B, A, 4] (Variance for Left, Top, Right, Bottom)
+        variance = mu_squared - mu.pow(2)
+        # We can take the mean variance across 4 coordinates.
+        u_raw = variance.mean(-1) # [B, A]
+        print(f"batch_var_mean: {u_raw.mean()}")
+        # -------------------------------------------------------
+
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
         pred_distri = pred_distri.permute(0, 2, 1).contiguous()
 
@@ -470,6 +491,263 @@ class v8DetectionLoss:
         loss[2] *= self.hyp.dfl  # dfl gain
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+
+class v8DetectionLoss_subnet_mk1(v8DetectionLoss):
+    def __init__(self, model, cfg: dict, tal_topk: int = 10):  # model must be de-paralleled
+        """Initialize v8DetectionLoss with model parameters and task-aligned assignment settings."""
+        super().__init__(model=model, cfg=cfg)
+        assert type(self.assigner) in ASSIGN_USE_SUBNET, "The subnet loss should use TaskAlignedAssigner_Subnet series"
+
+    def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
+        loss = torch.zeros(3, device=self.device)  # box, cls, dfl
+        if isinstance(preds, tuple):
+            if isinstance(preds[1], tuple):
+                feats = preds[1][1]
+                pd_coefs = preds[1][0]
+            else:
+                feats = preds[1]
+                pd_coefs = preds[0]
+        else:
+            feats = preds
+            pd_coefs = None
+        
+        bs = feats[0].shape[0]
+        sub_ch = pd_coefs[0].shape[1] if pd_coefs is not None else 0
+
+        pred_distri, pred_scores = torch.cat([xi.view(bs, self.no, -1) for xi in feats], 2).split(
+            (self.reg_max * 4, self.nc), 1
+        )
+
+        dfl_probs = pred_distri.view(bs, -1, 4, self.reg_max).detach().softmax(-1)
+        values = self.proj.view(1, 1, 1, -1)
+        # Compute Expectation E[X] (The predicted coordinate, unscaled)
+        mu = (dfl_probs * values).sum(-1) # [B, A, 4]
+
+        # Compute Expectation of Square E[X^2]
+        mu_squared = (dfl_probs * values.pow(2)).sum(-1) # [B, A, 4]
+
+        # Compute Variance Var(X) = E[X^2] - (E[X])^2
+        # shape: [B, A, 4] (Variance for Left, Top, Right, Bottom)
+        variance = mu_squared - mu.pow(2)
+
+        # We can take the mean variance across 4 coordinates.
+        u_raw = variance.mean(-1) # [B, A]
+
+        print(f"batch_var_mean: {u_raw.mean()}")
+        # TBD
+        # -----------------------------
+        if pd_coefs is not None:
+            pred_coefs = torch.cat([xi.view(bs, sub_ch, -1) for xi in pd_coefs], 2)
+            pred_coefs = pred_coefs.permute(0, 2, 1).contiguous()
+        else:
+            pred_coefs = None
+        # -----------------------------
+
+        pred_scores = pred_scores.permute(0, 2, 1).contiguous()
+        pred_distri = pred_distri.permute(0, 2, 1).contiguous()
+
+        dtype = pred_scores.dtype
+        batch_size = bs
+        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]  # image size (h,w)
+        feature_map_size = [[int(imgsz[0].item()/stride), int(imgsz[1].item()/stride)] for stride in self.stride]
+        anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
+
+        # Targets
+        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+        gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
+        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+
+        # Pboxes
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
+        # dfl_conf = pred_distri.view(batch_size, -1, 4, self.reg_max).detach().softmax(-1)
+        # dfl_conf = (dfl_conf.amax(-1).mean(-1) + dfl_conf.amax(-1).amin(-1)) / 2
+
+        # cal the stride for enlarge the target area for pos candidates
+        _stride = 1.0
+        if self.assigner_use_stride_input:
+            _bs = bs
+            _n_max_boxes = gt_bboxes.shape[1]
+            _dtype = gt_bboxes.dtype
+            _stride = (stride_tensor.clone().squeeze().unsqueeze(0).unsqueeze(0).repeat(_bs, _n_max_boxes, 1).
+                       to(_dtype).to(gt_bboxes.device))
+
+        _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
+            # pred_scores.detach().sigmoid() * 0.8 + dfl_conf.unsqueeze(-1) * 0.2,
+            pred_scores.detach().sigmoid() if self.assigner_sigmoid_input else pred_scores.detach(), # fixed here
+            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+            pred_coefs,
+            anchor_points * stride_tensor,
+            gt_labels,
+            gt_bboxes,
+            mask_gt,
+            stride = -_stride if self.assigner_use_stride_input else None,
+            feature_map_size = feature_map_size,
+        )
+
+        target_scores_sum = max(target_scores.sum(), 1)
+
+        # Cls loss
+        # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
+        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+
+        # Bbox loss
+        if fg_mask.sum():
+            target_bboxes /= stride_tensor
+            loss[0], loss[2] = self.bbox_loss(
+                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
+            )
+
+        loss[0] *= self.hyp.box  # box gain
+        loss[1] *= self.hyp.cls  # cls gain
+        loss[2] *= self.hyp.dfl  # dfl gain
+
+        return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+
+class v8DetectionLoss_subnet(v8DetectionLoss):
+    def __init__(self, model, cfg: dict, tal_topk: int = 10):  # model must be de-paralleled
+        """Initialize v8DetectionLoss with model parameters and task-aligned assignment settings."""
+        super().__init__(model=model, cfg=cfg)
+        assert type(self.assigner) in ASSIGN_USE_SUBNET, "The subnet loss should use TaskAlignedAssigner_Subnet series"
+
+    def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
+        loss = torch.zeros(3, device=self.device)  # box, cls, dfl
+        if isinstance(preds, tuple):
+            if isinstance(preds[1], tuple):
+                feats = preds[1][1]
+                pd_coefs = preds[1][0]
+            else:
+                feats = preds[1]
+                pd_coefs = preds[0]
+        else:
+            feats = preds
+            pd_coefs = None
+        
+        bs = feats[0].shape[0]
+        sub_ch = pd_coefs[0].shape[1] if pd_coefs is not None else 0
+
+        pred_distri, pred_scores = torch.cat([xi.view(bs, self.no, -1) for xi in feats], 2).split(
+            (self.reg_max * 4, self.nc), 1
+        )
+        # -----------------------------
+        if pd_coefs is not None:
+            pred_coefs = torch.cat([xi.view(bs, sub_ch, -1) for xi in pd_coefs], 2)
+            pred_coefs = pred_coefs.permute(0, 2, 1).contiguous()
+        else:
+            pred_coefs = None
+        # -----------------------------
+
+        pred_scores = pred_scores.permute(0, 2, 1).contiguous()
+        pred_distri = pred_distri.permute(0, 2, 1).contiguous()
+
+        dtype = pred_scores.dtype
+        batch_size = bs
+        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]  # image size (h,w)
+        feature_map_size = [[int(imgsz[0].item()/stride), int(imgsz[1].item()/stride)] for stride in self.stride]
+        anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
+
+        # Targets
+        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+        gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
+        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+
+        # Pboxes
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
+        # dfl_conf = pred_distri.view(batch_size, -1, 4, self.reg_max).detach().softmax(-1)
+        # dfl_conf = (dfl_conf.amax(-1).mean(-1) + dfl_conf.amax(-1).amin(-1)) / 2
+
+        # cal the stride for enlarge the target area for pos candidates
+        _stride = 1.0
+        if self.assigner_use_stride_input:
+            _bs = bs
+            _n_max_boxes = gt_bboxes.shape[1]
+            _dtype = gt_bboxes.dtype
+            _stride = (stride_tensor.clone().squeeze().unsqueeze(0).unsqueeze(0).repeat(_bs, _n_max_boxes, 1).
+                       to(_dtype).to(gt_bboxes.device))
+
+        _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
+            # pred_scores.detach().sigmoid() * 0.8 + dfl_conf.unsqueeze(-1) * 0.2,
+            pred_scores.detach().sigmoid() if self.assigner_sigmoid_input else pred_scores.detach(), # fixed here
+            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+            pred_coefs,
+            anchor_points * stride_tensor,
+            gt_labels,
+            gt_bboxes,
+            mask_gt,
+            stride = -_stride if self.assigner_use_stride_input else None,
+            feature_map_size = feature_map_size,
+        )
+
+        target_scores_sum = max(target_scores.sum(), 1)
+
+        # Cls loss
+        # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
+        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+
+        # add subnet_loss 
+        if pd_coefs is not None:
+            subnet_loss = self.compute_param_loss(pred_coefs[...,0], pred_coefs[...,1], fg_mask) / self.hyp.cls
+            loss[1] += subnet_loss
+
+        # Bbox loss
+        if fg_mask.sum():
+            target_bboxes /= stride_tensor
+            loss[0], loss[2] = self.bbox_loss(
+                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
+            )
+
+        loss[0] *= self.hyp.box  # box gain
+        loss[1] *= self.hyp.cls  # cls gain
+        loss[2] *= self.hyp.dfl  # dfl gain
+
+        return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+    
+    def compute_param_loss(self, pred_alphas, pred_betas, mask_pos):
+        """
+        Args:
+            pred_alphas: [B, A, H, W] or flattened [B, N]
+            pred_betas:  [B, A, H, W] or flattened [B, N]
+            mask_pos:    Foreground mask [B, N] (只在正样本处计算 Loss)
+        """
+        # 默认锚点值
+        default_alpha = 0.5
+        default_beta = 6.0
+        
+        # 1. 提取正样本的 alpha/beta
+        # 我们只关心正样本处的参数行为，背景处的参数不参与 soft label 计算，不用管
+        # print("mask_pos.shape:", mask_pos.shape)
+        # print("pred_alphas.shape:", pred_alphas.shape)
+        # print("pred_betas.shape:", pred_betas.shape)
+
+        pos_alpha = pred_alphas[mask_pos]
+        pos_beta = pred_betas[mask_pos]
+        
+        if pos_alpha.numel() == 0:
+            return torch.tensor(0.0, device=pred_alphas.device)
+
+        # 2. L2 Regularization (回归到默认值)
+        # 强迫网络只有在确信需要调整时才偏离默认值
+        loss_alpha = F.mse_loss(pos_alpha, torch.full_like(pos_alpha, default_alpha))
+        loss_beta = F.mse_loss(pos_beta, torch.full_like(pos_beta, default_beta))
+
+        # loss_overall = F.mse_loss(pos_alpha * pos_beta, torch.full_like(pos_alpha, default_alpha * default_beta))
+        
+        # 3. 限制 beta 不要太小 (防止坍塌到 0)
+        # 比如对于小物体，如果 beta < 1.0，区分度会变得极差
+        # 添加一个 ReLU 惩罚，如果 beta < 2.0 则产生 Loss
+        loss_alpha_collapse = F.relu(0.4 - pos_alpha).mean()
+        loss_beta_collapse = F.relu(3.0 - pos_beta).mean() 
+
+        # 组合 Loss
+        # lambda 系数需要调节，通常不用太大，0.1 左右即可
+        loss_param = loss_alpha + loss_beta + loss_alpha_collapse + loss_beta_collapse
+        # loss_param = loss_overall * 0.5 + loss_beta_collapse * 0.2
+        # loss_param = loss_alpha_collapse + loss_beta_collapse
+        
+        return loss_param
 
 class v8DetectionLoss_dflbg(v8DetectionLoss):
     def __init__(self, model, cfg: dict, tal_topk: int = 10):  # model must be de-paralleled

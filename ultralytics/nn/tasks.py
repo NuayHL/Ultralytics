@@ -70,6 +70,7 @@ from ultralytics.nn.modules import (
     v10Detect,
 
     DetectPermute,
+    DetectWithSubnet,
 
     ChannelBiasBlock,
     CABlock,
@@ -424,7 +425,11 @@ class DetectionModel(BaseModel):
 
             self.model.eval()  # Avoid changing batch statistics until training begins
             m.training = True  # Setting it to True to properly return strides
-            m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])  # forward
+            # m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])  # forward
+            _x =  _forward(torch.zeros(1, ch, s, s))
+            if isinstance(_x, tuple):
+                _x = _x[1]
+            m.stride = torch.tensor([s / x.shape[-2] for x in _x])  # forward
             self.stride = m.stride
             self.model.train()  # Set model back to training(default) mode
             m.bias_init()  # only run once
@@ -1677,12 +1682,13 @@ def parse_model(d, ch, verbose=True):
             c2 = sum(ch[x] for x in f)
         elif m in frozenset(
             {Detect, WorldDetect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB, ImagePoolingAttn, v10Detect,
-             DetectPermute}
+             DetectPermute, DetectWithSubnet}
         ):
-            args.insert(1, [ch[x] for x in f])
+            args.insert(1, [ch[x] for x in f]) # add feature channels at fixed position
             if m is Segment or m is YOLOESegment:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
-            if m in {Detect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB, DetectPermute}:
+            if m in {Detect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB, 
+                     DetectPermute, DetectWithSubnet}:
                 m.legacy = legacy
         elif m is RTDETRDecoder:  # special case, channels arg must be passed in index 1
             args.insert(1, [ch[x] for x in f])

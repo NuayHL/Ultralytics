@@ -153,12 +153,12 @@ if __name__ == "__main__":
 
 
     class SmoothLSEActivation(nn.Module):
-        def __init__(self):
+        def __init__(self, slope=0.7, bias=20):
             super().__init__()
             # We can make the linear parameters learnable if needed,
             # but here we fix them as per your constraints.
-            self.slope = 0.1
-            self.bias = 20.0
+            self.slope = slope
+            self.bias = bias
 
         def forward(self, x):
             """
@@ -192,10 +192,11 @@ if __name__ == "__main__":
     func_list = [
 
         # ['x^2+buff', lambda x: x**2 + 20 * (1 - np.sqrt(x + 2)/5)],
-        # ['x^2', lambda x: x ** 2],
-        ['test', designed_function],
-        # ['x^2+ext1', SmoothLSEActivation()]
+        ['x^2', lambda x: x ** 2],
+        # ['test', designed_function],
+        ['test', SmoothLSEActivation(0.7, 30)],
+        ['test1', SmoothLSEActivation(2, 30)]
     ]
 
     # plot_functions(func_list, (eps, 100), 1, log_x=True)
-    plot_functions(func_list, (eps, 72), 0.1,)
+    plot_functions(func_list, (eps, 50), 0.1,)

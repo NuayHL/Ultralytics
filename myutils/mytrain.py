@@ -2,7 +2,7 @@ from ultralytics import YOLO
 from ultralytics.models.yolo.detect import DetectionTrainerWithDynamicAssigner
 
 # Load a model
-model = YOLO("cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_rfix_pow4_7.yaml")  # build a new model from YAML
+model = YOLO("cfg/learnable/yolo12s_none_mk1.yaml")  # build a new model from YAML
 # model = YOLO("cfg/yolo12s.yaml")  # build a new model from YAML
 
 # Train the model

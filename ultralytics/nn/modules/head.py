@@ -23,7 +23,8 @@ from .conv import Conv, DWConv
 from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init
 
-__all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder", "v10Detect", "YOLOEDetect", "YOLOESegment"
+__all__ = ("Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder", "v10Detect", "YOLOEDetect", "YOLOESegment", 
+           "DetectWithSubnet")
 
 
 class Detect(nn.Module):
@@ -229,6 +230,93 @@ class Detect(nn.Module):
         scores, index = scores.flatten(1).topk(min(max_det, anchors))
         i = torch.arange(batch_size)[..., None]  # batch indices
         return torch.cat([boxes[i, index // nc], scores[..., None], (index % nc)[..., None].float()], dim=-1)
+
+from .subnet import build_subnet
+
+class DetectWithSubnet(Detect):  # Inherits from your base Detect class
+    def __init__(self, nc: int = 80, ch: Tuple = (), subnet_type: str = "SimpleAlphaBeta"):
+        # Initialize parent
+        super().__init__(nc=nc, ch=ch)
+        self.nc = nc
+        self.nl = len(ch)
+        self.reg_max = 16
+        self.no = nc + self.reg_max * 4
+        self.stride = torch.zeros(self.nl)
+
+        c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], min(self.nc, 100))
+
+        # --- Original Architecture Definition ---
+        self.cv2 = nn.ModuleList(
+            nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
+        )
+        self.cv3 = (
+            nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch)
+            if self.legacy
+            else nn.ModuleList(
+                nn.Sequential(
+                    nn.Sequential(DWConv(x, x, 3), Conv(x, c3, 1)),
+                    nn.Sequential(DWConv(c3, c3, 3), Conv(c3, c3, 1)),
+                    nn.Conv2d(c3, self.nc, 1),
+                )
+                for x in ch
+            )
+        )
+        self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
+
+        # --- New Subnet Integration ---
+        # We create a ModuleList of subnets, one for each feature level (e.g., P3, P4, P5)
+        # We use the input channel 'x' from 'ch' directly, assuming subnet attaches to the stem.
+        if subnet_type:
+            self.subnets = nn.ModuleList(
+                build_subnet(subnet_type, in_channels=x) for x in ch
+            )
+        else:
+            self.subnets = None
+
+    def forward(self, x: List[torch.Tensor]) -> Union[List[torch.Tensor], Tuple]:
+        """
+        Concatenate and return predicted bounding boxes and class probabilities.
+        Modified to also return learnable parameters (alpha, beta).
+        """
+        param_outputs = []  # To store [alpha_beta_P3, alpha_beta_P4, ...]
+
+        for i in range(self.nl):
+            # 1. Forward Pass through the Subnet
+            if self.subnets is not None:
+                # x[i] is the input feature map for this level
+                ab_out = self.subnets[i](x[i])
+                param_outputs.append(ab_out)
+
+            # 2. Original Detection Head Forward Pass
+            # Update x[i] in-place with the concatenated bbox and cls outputs
+            x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
+
+        if self.training:
+            # Return tuple: (standard_outputs, parameter_outputs)
+            # This requires you to update your Loss function to unpack this tuple.
+            if self.subnets is not None:
+                return (param_outputs, x)
+            return x
+
+        # Inference logic usually doesn't need alpha/beta unless you use them for NMS scoring
+        y = self._inference(x)
+        if self.export:
+            return y
+        else:
+            if self.subnets is not None:
+                return (y, (param_outputs, x))
+            return (y, (None, x))
+
+    def bias_init(self):
+        """Initialize Detect() biases."""
+        # Original initialization logic...
+        m = self
+        for a, b, s in zip(m.cv2, m.cv3, m.stride):
+            a[-1].bias.data[:] = 1.0
+            b[-1].bias.data[: m.nc] = math.log(5 / m.nc / (640 / s) ** 2)
+
+        # Subnet initialization is handled inside the subnet's __init__,
+        # so no extra code is needed here unless you want to override it.
 
 class DetectPermute(Detect):
     def __init__(self, nc: int = 80, ch: Tuple = (),

@@ -94,7 +94,8 @@ from .head import (
     YOLOEDetect,
     YOLOESegment,
     v10Detect,
-
+    
+    DetectWithSubnet,
     DetectPermute,
 )
 from .transformer import (
@@ -192,5 +193,7 @@ __all__ = (
     "SEBlock",
     "ChannelBiasBlock",
     "CBConvBlock",
-    "ConvBase"
+    "ConvBase",
+
+    "DetectWithSubnet",
 )

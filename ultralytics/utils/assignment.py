@@ -26,6 +26,9 @@ from ultralytics.utils.mla_dab import (TaskAlignedAssigner_dab,
                                        TaskAlignedAssigner_VaryingIoU_Sep,
                                        TaskAlignedAssigner_VaryingIoU_Sep_Dynamic,
                                        TaskAlignedAssigner_VaryingIoU_Sep_Scale)
+from ultralytics.utils.mla_sub import (TaskAlignedAssigner_Subnet_Scale,
+                                       TaskAlignedAssigner_Subnet_NoGrad_Scale)
+
 from ultralytics.utils.mla_scale import TaskAlignedAssigner_dScale
 from ultralytics.utils.tal import TaskAlignedAssigner
 from ultralytics.utils.mla_basic import FCOSAssigner, SimOTAAssigner
@@ -43,7 +46,9 @@ ASSIGN_USE_STRIDE = (TaskAlignedAssigner_Scale,
                      TaskAlignedAssigner_Scale_abtest,
                      TaskAlignedAssigner_dScale,
                      TaskAlignedAssigner_dynamicJoint_v1,
-                     TaskAlignedAssigner_VaryingIoU_Sep_Scale)
+                     TaskAlignedAssigner_VaryingIoU_Sep_Scale,
+                     TaskAlignedAssigner_Subnet_Scale,
+                     TaskAlignedAssigner_Subnet_NoGrad_Scale)
 
 # bce1 is a mistake so did not add in it
 ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
@@ -54,9 +59,13 @@ ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
 ASSIGN_USE_HBG = (TaskAlignedAssigner_hbg,
                   TaskAlignedAssigner_hbg_with_Scale)
 
+ASSIGN_USE_SUBNET = (TaskAlignedAssigner_Subnet_Scale,
+                     TaskAlignedAssigner_Subnet_NoGrad_Scale)
+
 def LOGGER_INFO(assigner_type):
     LOGGER.info(f"{colorstr('Using Logist pd_socre')}: {type(assigner_type) in ASSIGN_USE_LOGIST}")
     LOGGER.info(f"{colorstr('Using Stride pd_socre')}: {type(assigner_type) in ASSIGN_USE_STRIDE}")
+    LOGGER.info(f"{colorstr('Using Subnet')}: {type(assigner_type) in ASSIGN_USE_SUBNET}")
 
 def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
     assigner_type = cfg.get("assigner_type", "TaskAlignedAssigner")
@@ -207,6 +216,16 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
         elif assigner_type == "TaskAlignedAssigner_Scale_BCE2":
             _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
             assigner = TaskAlignedAssigner_Scale_BCE2(**_kwargs)
+
+        # Assigner with subnet output
+        elif assigner_type == "TaskAlignedAssigner_Subnet_Scale":
+            _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+            assigner = TaskAlignedAssigner_Subnet_Scale(**_kwargs)
+        elif assigner_type == "TaskAlignedAssigner_Subnet_NoGrad_Scale":
+            _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+            assigner = TaskAlignedAssigner_Subnet_NoGrad_Scale(**_kwargs)
+
+        # Record assigner
         elif assigner_type == "TaskAlignedAssigner_Record":
             _kwargs['dir_name'] = cfg.get("dir_name", 'test')
             _kwargs['save_step'] = cfg.get("save_step", 10)

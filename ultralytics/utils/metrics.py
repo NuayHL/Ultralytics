@@ -56,10 +56,10 @@ def bbox_ioa(box1: np.ndarray, box2: np.ndarray, iou: bool = False, eps: float =
 
 
 class SmoothLSEActivation(nn.Module):
-    def __init__(self):
+    def __init__(self, slope=0.1, bias=20):
         super().__init__()
-        self.slope = 0.1
-        self.bias = 20.0
+        self.slope = slope
+        self.bias = bias
 
     def forward(self, x):
         """
@@ -73,14 +73,11 @@ class SmoothLSEActivation(nn.Module):
         # torch.logaddexp avoids overflow when exponentials are large
         return torch.logaddexp(quad_part, linear_part)
 
-area_buffer = SmoothLSEActivation()
-
-def lambda1_function(x):
+def lambda1_function(x, y_min, y_max=16.0):
     """
     Implements the shifted Hill function based on user constraints.
     Formula: f(x) = y_min + (y_max - y_min) * (x^n / (x^n + k^n))
     """
-    y_min = 0.3
     y_max = 16.0
     k = 16.0  # Semi-saturation point (controls where the curve is at 50% rise)
     n = 3.0  # Hill coefficient (controls steepness)
@@ -227,7 +224,7 @@ def bbox_iou_ext(
     # print("gt_area_avg. :", (w2 * h2 + eps).mean())
     # print("pred_area_avg. :", (w1 * h1 + eps).mean())
 
-    if iou_type in ["l1", "l1_ext"]:
+    if iou_type in ["l1", "l1_ext", "l1_ext_dy"]:
         d2 = w2.pow(2) + h2.pow(2)
         s2 = w2 * h2 + eps
         raw =  (torch.pow(torch.abs(b1_x1 - b2_x1).clamp(min=0), 2) +
@@ -241,8 +238,14 @@ def bbox_iou_ext(
 
         else:
             # return torch.exp( - lambda1 * torch.sqrt(raw) / (torch.sqrt(d2) + eps))
-            func_alpha = lambda d: 0.9 + 0.1 / (1.0 + (d / 100) ** 2)
-            return torch.exp( - lambda1 * torch.sqrt(raw) / torch.pow(s2,func_alpha(s2)))
+            # func_alpha = lambda d: 0.9 + 0.1 / (1.0 + (d / 100) ** 2)
+            if iou_type == "l1_ext":
+                return torch.exp( - lambda1 * raw / d2 + eps)
+            else:
+                lambda1_dy = lambda1_function(torch.sqrt(s2),
+                                              y_min=iou_kargs.get("y_min", 0.5),
+                                              y_max=iou_kargs.get("y_max", 16))
+                return torch.exp( - lambda1_dy * raw / d2 + eps)
             # return torch.exp( - lambda1 * torch.sqrt(raw) / d2 + eps)
 
     if iou_type == "NWD":
@@ -359,6 +362,8 @@ def bbox_iou_ext(
         # else:
         d2 = w2.pow(2) + h2.pow(2)
         s2 = w2 * h2 + eps
+        if iou_kargs.get("area_mean", False):
+            s2 = s2.mean()
 
         # 2. Calculate squared Euclidean distances between corresponding corners
         # Ideally, we want to align TL with TL, BR with BR, etc.
@@ -381,7 +386,7 @@ def bbox_iou_ext(
         # If perfect match: IoU=1, d_h=0 -> returns 1.0
         # If far away: IoU=0, d_h -> max -> returns negative value (penalty).
         if iou_type == "Hausdorff_dy":
-            lambda1_dy = lambda1_function(torch.sqrt(s2))
+            lambda1_dy = lambda1_function(torch.sqrt(s2), y_min=iou_kargs.get("y_min", 0.5), y_max=iou_kargs.get("y_max", 16))
             return torch.exp( - lambda1_dy * d_h_sq / d2 )
 
         lambda1 = iou_kargs.get("lambda1", 1)
@@ -403,12 +408,15 @@ def bbox_iou_ext(
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / d2)
                 elif iou_type == "Hausdorff_Ext_L2_rfix":
                     # func_alpha = lambda d: 0.7 + 0.3 / (1.0 + (d / 100) ** 2) # 70 and 73
-                    func_alpha = lambda d: 0.9 + 0.1 / (1.0 + (d / 100) ** 2)
+                    # func_alpha = lambda d: 0.9 + 0.1 / (1.0 + (d / 100) ** 2)
                     # base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) /
                     #                        torch.pow(s2, func_alpha(s2)))
+                    area_buffer = SmoothLSEActivation(slope=iou_kargs.get("slope", 0.1),
+                                                      bias=iou_kargs.get("bias", 20))
                     base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / area_buffer(torch.sqrt(s2)))
                 else:
-                    base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / (w2 * h2 + eps))
+                    # base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / (w2 * h2 + eps))
+                    base_dist = torch.exp( - lambda3 * torch.sqrt(L2_dis_sq) / s2)
             else:
                 raise ValueError(f"Invalid iou_type {iou_type}.")
             # if iou_type == "Hausdorff_Ext_L2_rfix":

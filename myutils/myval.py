@@ -76,9 +76,9 @@ def print_info(metrics_dicts):
 if __name__ == "__main__":
     print_info(
     format_metrics(
-        model_path='../runs/detect/VisDrone_AB_Search/yolo12n_a2.3_b5.0/weights/best.pt',
-        data_path='../ultralytics/cfg/datasets/VisDrone.yaml',
-        name='VisDrone_AB_Search_val/yolo12n_a2.3_b5.0',
+        model_path='../v12n_visdrone_df.pt',
+        data_path='../ultralytics/cfg/datasets/hit-uav.yaml',
+        name='test/test',
         batch=16,
         imgsz=640,
     ))
