@@ -102,6 +102,27 @@ def segment2box(segment, width: int = 640, height: int = 640):
     )  # xyxy
 
 
+def _normalize_ratio_pad(ratio_pad):
+    """
+    Normalize ratio_pad to 2D format ((ratio_h, ratio_w), (pad_x, pad_y)).
+
+    Data pipeline may pass 1D format (ratio_h, ratio_w) from base.py when Letterbox is not used
+    (e.g. RT-DETR val with empty transforms). This allows ops to accept both formats.
+
+    Args:
+        ratio_pad: Either 2D ((ratio_h, ratio_w), (pad_x, pad_y)) or 1D (ratio_h, ratio_w).
+
+    Returns:
+        Tuple in 2D format. If input is 1D, pad is (0, 0).
+    """
+    if ratio_pad is None:
+        return None
+    if len(ratio_pad) == 2 and isinstance(ratio_pad[0], (int, float)):
+        # 1D: (ratio_h, ratio_w) -> no padding
+        return (tuple(ratio_pad), (0, 0))
+    return ratio_pad
+
+
 def scale_boxes(img1_shape, boxes, img0_shape, ratio_pad=None, padding: bool = True, xywh: bool = False):
     """
     Rescale bounding boxes from one image shape to another.
@@ -120,6 +141,7 @@ def scale_boxes(img1_shape, boxes, img0_shape, ratio_pad=None, padding: bool = T
     Returns:
         (torch.Tensor): Rescaled bounding boxes in the same format as input.
     """
+    ratio_pad = _normalize_ratio_pad(ratio_pad)
     if ratio_pad is None:  # calculate from img0_shape
         gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
         pad_x = round((img1_shape[1] - img0_shape[1] * gain) / 2 - 0.1)
@@ -229,6 +251,7 @@ def scale_image(masks, im0_shape, ratio_pad=None):
     if im1_h == im0_h and im1_w == im0_w:
         return masks
 
+    ratio_pad = _normalize_ratio_pad(ratio_pad)
     if ratio_pad is None:  # calculate from im0_shape
         gain = min(im1_h / im0_h, im1_w / im0_w)  # gain  = old / new
         pad = (im1_w - im0_w * gain) / 2, (im1_h - im0_h * gain) / 2  # wh padding
@@ -619,6 +642,7 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None, normalize: bool
         (torch.Tensor): Scaled coordinates.
     """
     img0_h, img0_w = img0_shape[:2]  # supports both HWC or HW shapes
+    ratio_pad = _normalize_ratio_pad(ratio_pad)
     if ratio_pad is None:  # calculate from img0_shape
         img1_h, img1_w = img1_shape[:2]  # supports both HWC or HW shapes
         gain = min(img1_h / img0_h, img1_w / img0_w)  # gain  = old / new

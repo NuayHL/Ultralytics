@@ -27,7 +27,10 @@ from ultralytics.utils.mla_dab import (TaskAlignedAssigner_dab,
                                        TaskAlignedAssigner_VaryingIoU_Sep_Dynamic,
                                        TaskAlignedAssigner_VaryingIoU_Sep_Scale)
 from ultralytics.utils.mla_sub import (TaskAlignedAssigner_Subnet_Scale,
-                                       TaskAlignedAssigner_Subnet_NoGrad_Scale)
+                                       TaskAlignedAssigner_Subnet_NoGrad_Scale,
+                                       TaskAlignedAssigner_SubN_NG_Uncertainty_S,
+                                       TaskAlignedAssigner_ab_uncertainty_joint,
+                                       TaskAlignedAssigner_ab_uncertainty_simd_joint)
 
 from ultralytics.utils.mla_scale import TaskAlignedAssigner_dScale
 from ultralytics.utils.tal import TaskAlignedAssigner
@@ -48,7 +51,10 @@ ASSIGN_USE_STRIDE = (TaskAlignedAssigner_Scale,
                      TaskAlignedAssigner_dynamicJoint_v1,
                      TaskAlignedAssigner_VaryingIoU_Sep_Scale,
                      TaskAlignedAssigner_Subnet_Scale,
-                     TaskAlignedAssigner_Subnet_NoGrad_Scale)
+                     TaskAlignedAssigner_Subnet_NoGrad_Scale,
+                     TaskAlignedAssigner_SubN_NG_Uncertainty_S,
+                     TaskAlignedAssigner_ab_uncertainty_joint,
+                     TaskAlignedAssigner_ab_uncertainty_simd_joint)
 
 # bce1 is a mistake so did not add in it
 ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
@@ -60,7 +66,11 @@ ASSIGN_USE_HBG = (TaskAlignedAssigner_hbg,
                   TaskAlignedAssigner_hbg_with_Scale)
 
 ASSIGN_USE_SUBNET = (TaskAlignedAssigner_Subnet_Scale,
-                     TaskAlignedAssigner_Subnet_NoGrad_Scale)
+                     TaskAlignedAssigner_Subnet_NoGrad_Scale,
+                     TaskAlignedAssigner_SubN_NG_Uncertainty_S,
+                     TaskAlignedAssigner_ab_uncertainty_joint,
+                     TaskAlignedAssigner_ab_uncertainty_simd_joint)
+
 
 def LOGGER_INFO(assigner_type):
     LOGGER.info(f"{colorstr('Using Logist pd_socre')}: {type(assigner_type) in ASSIGN_USE_LOGIST}")
@@ -224,6 +234,39 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
         elif assigner_type == "TaskAlignedAssigner_Subnet_NoGrad_Scale":
             _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
             assigner = TaskAlignedAssigner_Subnet_NoGrad_Scale(**_kwargs)
+        elif assigner_type == "TaskAlignedAssigner_SubN_NG_Uncertainty_S":
+            _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+            assigner = TaskAlignedAssigner_SubN_NG_Uncertainty_S(**_kwargs)
+        elif assigner_type == "TaskAlignedAssigner_ab_uncertainty_joint":
+            _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+            _kwargs['lambda_fusion'] = cfg.get("lambda_fusion", 0.6)
+            _kwargs['scale_min'] = cfg.get("scale_min", 16)
+            _kwargs['scale_max'] = cfg.get("scale_max", 64)
+            _kwargs['beta_easy'] = cfg.get("beta_easy", 6.0)
+            _kwargs['beta_hard'] = cfg.get("beta_hard", 3.0)
+            _kwargs['alpha_easy'] = cfg.get("alpha_easy", 0.5)
+            _kwargs['alpha_hard'] = cfg.get("alpha_hard", 1.2)
+            assigner = TaskAlignedAssigner_ab_uncertainty_joint(**_kwargs)
+
+        elif assigner_type == "TaskAlignedAssigner_ab_uncertainty_simd_joint":
+            _kwargs['scale_ratio'] = cfg.get("scale_ratio", 1.0)
+            _kwargs['lambda_fusion'] = cfg.get("lambda_fusion", 0.6)
+            _kwargs['scale_min'] = cfg.get("scale_min", 16)
+            _kwargs['scale_max'] = cfg.get("scale_max", 64)
+            _kwargs['beta_easy'] = cfg.get("beta_easy", 6.0)
+            _kwargs['beta_hard'] = cfg.get("beta_hard", 3.0)
+            _kwargs['alpha_easy'] = cfg.get("alpha_easy", 0.5)
+            _kwargs['alpha_hard'] = cfg.get("alpha_hard", 1.2)
+
+            _kwargs['overlap_iou_type'] = cfg.get("overlap_iou_type", "CIoU")
+            _kwargs['overlap_iou_kwargs'] = cfg.get("overlap_iou_kwargs", {})
+            _kwargs['align_iou_type'] = cfg.get("align_iou_type", "CIoU")
+            _kwargs['align_iou_kwargs'] = cfg.get("align_iou_kwargs", {})
+            _kwargs['score_iou_type'] = cfg.get("score_iou_type", "CIoU")
+            _kwargs['score_iou_kwargs'] = cfg.get("score_iou_kwargs", {})
+
+
+            assigner = TaskAlignedAssigner_ab_uncertainty_simd_joint(**_kwargs)
 
         # Record assigner
         elif assigner_type == "TaskAlignedAssigner_Record":
