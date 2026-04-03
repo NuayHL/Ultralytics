@@ -1,11 +1,24 @@
 import os
 import sys
+import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
 from ultralytics import YOLO
 from ultralytics.utils import YAML
 from ultralytics.models.yolo.detect import DetectionTrainerWithDynamicAssigner
+
+
+def _backup_last_pt(last_pt: Path):
+    """Backup last.pt to last.pt.bak<N> (incrementing N)."""
+    if not last_pt.exists():
+        raise FileNotFoundError(f"Cannot resume: {last_pt} not found")
+    n = 1
+    while (last_pt.parent / f"last.pt.bak{n}").exists():
+        n += 1
+    bak_path = last_pt.parent / f"last.pt.bak{n}"
+    shutil.copy2(last_pt, bak_path)
+    print(f"Backed up {last_pt} -> {bak_path}")
 
 class LogLogger:
     """
@@ -55,7 +68,7 @@ class LogLogger:
             self.log_file.close()
 
 
-def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml, log_root, trainer=None,
+def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml=None, log_root=None, trainer=None,
                    other_train_kwargs={}, no_files_upload=False):
     """
     Runs a single training experiment and triggers the post-processing script.
@@ -83,9 +96,17 @@ def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml, log_
     with LogLogger(log_file):
         print(f"Experiment: {exp_name}")
         print(f"Start Time: {datetime.now()}")
-        
-        # Initialize model
-        model = YOLO(model_yaml)
+
+        # Initialize model — resume path or fresh yaml
+        is_resume = other_train_kwargs.get('resume', False)
+        if is_resume:
+            last_pt = Path("runs/detect") / project_path / "weights" / "last.pt"
+            _backup_last_pt(last_pt)
+            model = YOLO(str(last_pt))
+        else:
+            if model_yaml is None:
+                raise ValueError(f"model_yaml must be provided when resume=False (exp: {exp_name})")
+            model = YOLO(model_yaml)
         
         # 准备训练参数
         train_kwargs = {
@@ -151,13 +172,39 @@ def main(exp_prefix="hituav", data_yaml="ultralytics/cfg/datasets/hit-uav.yaml",
             extra_tags=exp["extra_tags"],
             exp_prefix=exp_prefix,
             data_yaml=data_yaml,
-            model_yaml=exp["model_yaml"],
+            model_yaml=exp.get("model_yaml", None),
             log_root=log_root,
             trainer=exp.get("trainer", None),
             other_train_kwargs=exp.get("other_train_kwargs", {}),
             no_files_upload=no_files_upload
         )
 
+def do_hituav(exp_list):
+    exp_prefix = "hituav"
+    data_yaml = "ultralytics/cfg/datasets/hit-uav.yaml"
+    main(
+        exp_prefix=exp_prefix,
+        data_yaml=data_yaml,
+        exp_list=exp_list
+    )
+
+def do_aitodv2(exp_list):
+    exp_prefix = "aitodv2"
+    data_yaml = "ultralytics/cfg/datasets/ai-todv2.yaml"
+    main(
+        exp_prefix=exp_prefix,
+        data_yaml=data_yaml,
+        exp_list=exp_list
+    )
+
+def do_visdrone(exp_list):
+    exp_prefix = "visdrone"
+    data_yaml = "ultralytics/cfg/datasets/VisDrone.yaml"
+    main(
+        exp_prefix=exp_prefix,
+        data_yaml=data_yaml,
+        exp_list=exp_list
+    )
 
 if __name__ == "__main__":
     # EXP_LIST = [
@@ -190,76 +237,141 @@ if __name__ == "__main__":
         #      trainer=None),
     # ]
 
-    # EXP_LIST = [
-    #     dict(exp_name="v12s_assign4ciou_align_hausdorff_dy",
-    #          extra_tags=["v12", "v12s", "new_align"],
-    #          model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_dy.yaml",
-    #          trainer=None,),
-    # ]
-
-    EXP_LIST = [
-        # dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_pow4_7",
-        #      extra_tags=["v12", "v12s",],
-        #      model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_pow4_7.yaml",
-        #      trainer=None,),
-        dict(exp_name="v12s_none",
-             extra_tags=["v12", "v12s", "baseline"],
-             model_yaml="cfg/learnable/yolo12s_none.yaml",
-             trainer=None, ),
-        # dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_rfix_pow4_7_mean.yaml",
-        #      extra_tags=["v12", "v12s", ],
-        #      model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_rfix_pow4_7_mean.yaml",
-        #      trainer=None, ),
-
-        # dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_rfix_pow4_7_3_30",
-        #      extra_tags=["v12", "v12s", ],
-        #      model_yaml="cfg/assign_iou/search/yolo12s_assign4ciou_align_hausdorff_ext_l2_rfix_pow4_7_3_30.yaml",
-        #      trainer=None, ),
+    other_train_kwargs = dict(optimizer="SGD", lr0=0.01, lrf=0.01, cos_lr=False, mosaic=0.5, close_mosaic=15)
+    aitod_train_kwargs = dict(optimizer="SGD", lr0=0.01, lrf=0.01, cos_lr=False, mosaic=1.0, close_mosaic=15)
+    
+    EXP_LIST_aitodv2_small = [
+        dict(exp_name="yolo12s_none_mk2_simd_joint.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "scale", "hats"],
+             model_yaml="cfg/learnable/yolo12s_none_mk2_simd_joint.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+        dict(exp_name="yolo12s.yaml",
+             extra_tags=["v12", "v12s", "baseline","new_pip"],
+             model_yaml="cfg/yolo12s.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
     ]
 
+    EXP_LIST_aitodv2_other = [
+        dict(exp_name="yolo12n_none_mk2_simd_joint.yaml",
+             extra_tags=["v12", "v12n", "new_pip", "scale", "hats"],
+             model_yaml="cfg/learnable/yolo12n_none_mk2_simd_joint.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+        dict(exp_name="yolo12n.yaml",
+             extra_tags=["v12", "v12n", "baseline","new_pip"],
+             model_yaml="cfg/yolo12n.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+        dict(exp_name="yolo12m_none_mk2_simd_joint.yaml",
+             extra_tags=["v12", "v12m", "new_pip", "scale", "hats"],
+             model_yaml="cfg/learnable/yolo12m_none_mk2_simd_joint.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+        dict(exp_name="yolo12m.yaml",
+             extra_tags=["v12", "v12m", "baseline","new_pip"],
+             model_yaml="cfg/yolo12m.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+        dict(exp_name="yolo12l_none_mk2_simd_joint.yaml",
+             extra_tags=["v12", "v12l", "new_pip", "scale", "hats"],
+             model_yaml="cfg/learnable/yolo12l_none_mk2_simd_joint.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+        dict(exp_name="yolo12l.yaml",
+             extra_tags=["v12", "v12l", "baseline","new_pip"],
+             model_yaml="cfg/yolo12l.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+    ]
 
-    EXP_PREFIX = "hituav"
-    DATA_YAML = "ultralytics/cfg/datasets/hit-uav.yaml"
-    main(
-        exp_prefix=EXP_PREFIX,
-        data_yaml=DATA_YAML,
-        exp_list=EXP_LIST
-    )
+    EXP_LIST_aitodv2_m = [
+        dict(exp_name="yolo12m_none_mk2_simd_joint.yaml",
+             extra_tags=["v12", "v12m", "new_pip", "scale", "hats"],
+             model_yaml="cfg/learnable/yolo12m_none_mk2_simd_joint.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+        dict(exp_name="yolo12m.yaml",
+             extra_tags=["v12", "v12m", "baseline","new_pip"],
+             model_yaml="cfg/yolo12m.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+    ]
 
-    EXP_PREFIX = "visdrone"
-    DATA_YAML = "ultralytics/cfg/datasets/VisDrone.yaml"
-    main(
-        exp_prefix=EXP_PREFIX,
-        data_yaml=DATA_YAML,
-        exp_list=EXP_LIST
-    )
+    EXP_LIST_aitodv2_usaa_m = [
+        dict(exp_name="test",
+             extra_tags=["v12", "v12m", "new_pip", "usaa"],
+             model_yaml="cfg/usaa/yolo12m_usaa.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+    ]
 
-    EXP_PREFIX = "aitodv2"
-    DATA_YAML = "ultralytics/cfg/datasets/ai-todv2.yaml"
-    main(
-        exp_prefix=EXP_PREFIX,
-        data_yaml=DATA_YAML,
-        exp_list=EXP_LIST
-    )
+    EXP_LIST = [
+        dict(exp_name="yolo12s_none_mk2_simd_joint.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "scale", "hats"],
+             model_yaml="cfg/learnable/yolo12s_none_mk2_simd_joint.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+    ]
+
+    EXP_LIST_usaa_s_sigma = [
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma050.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa",],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma050.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma100.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa",],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma100.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma200.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa",],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma200.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma400.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa",],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma400.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma025.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa",],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma025.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+    ]
+
+    do_hituav(EXP_LIST_usaa_s_sigma)
+    # do_visdrone(EXP_LIST)
+    # do_hituav(EXP_LIST)
 
     # EXP_LIST = [
-    #     dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_3_pow4_7",
-    #          extra_tags=["v12", "v12s",],
-    #          model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_3_pow4_7.yaml",
-    #          trainer=None,),
-    #     dict(exp_name="v12s_assign4ciou_align_hausdorff_ext_l2_pow35_10",
-    #          extra_tags=["v12", "v12s", ],
-    #          model_yaml="cfg/assign_iou/yolo12s_assign4ciou_align_hausdorff_ext_l2_pow35_10.yaml",
-    #          trainer=None, ),
-    #     dict(exp_name="v12m_assign4ciou_align_hausdorff_ext_l2_3_pow4_7",
-    #          extra_tags=["v12", "v12m", ],
-    #          model_yaml="cfg/assign_iou/yolo12m_assign4ciou_align_hausdorff_ext_l2_3_pow4_7.yaml",
-    #          trainer=None, ),
-    #     dict(exp_name="v12l_assign4ciou_align_hausdorff_ext_l2_pow35_10",
-    #          extra_tags=["v12", "v12l", ],
-    #          model_yaml="cfg/assign_iou/yolo12l_assign4ciou_align_hausdorff_ext_l2_pow35_10.yaml",
-    #          trainer=None, ),
+    #     dict(exp_name="yolo12s.yaml",
+    #          extra_tags=["v12", "v12s", "new_pip", "baseline"],
+    #          model_yaml="cfg/yolo12s.yaml",
+    #          trainer=None, other_train_kwargs=aitod_train_kwargs),
+    #     dict(exp_name="yolo12s_none_mk2_joint.yaml",
+    #          extra_tags=["v12", "v12s", "new_pip"],
+    #          model_yaml="cfg/learnable/yolo12s_none_mk2_joint.yaml",
+    #          trainer=None, other_train_kwargs=aitod_train_kwargs),
     # ]
     #
+    # EXP_LIST = [
+    #     dict(exp_name="yolo12s_assign_scale.yaml",
+    #          extra_tags=["v12", "v12s", "new_pip", "scale"],
+    #          model_yaml="cfg/yolo12s_assign_scale.yaml",
+    #          trainer=None, other_train_kwargs=other_train_kwargs),
+    # ]
+
+    # EXP_PREFIX = "aitodv2"
+    # DATA_YAML = "ultralytics/cfg/datasets/ai-todv2.yaml"
+    # main(
+    #     exp_prefix=EXP_PREFIX,
+    #     data_yaml=DATA_YAML,
+    #     exp_list=EXP_LIST
+    # )
+
+    # EXP_PREFIX = "hituav"
+    # DATA_YAML = "ultralytics/cfg/datasets/hit-uav.yaml"
+    # main(
+    #     exp_prefix=EXP_PREFIX,
+    #     data_yaml=DATA_YAML,
+    #     exp_list=EXP_LIST
+    # )
+
+    # EXP_PREFIX = "visdrone"
+    # DATA_YAML = "ultralytics/cfg/datasets/VisDrone.yaml"
+    # main(
+    #     exp_prefix=EXP_PREFIX,
+    #     data_yaml=DATA_YAML,
+    #     exp_list=EXP_LIST
+    # )
+
+
 
 

@@ -33,6 +33,9 @@ def get_detection_loss(cfg):
         return v8DetectionLoss_subnet_mk1
     elif loss_name == 'subnet_mk2':
         return v8DetectionLoss_subnet_mk2
+    elif loss_name == 'usaa':
+        from .loss_usaa import DetectionLoss_USAA
+        return DetectionLoss_USAA
     else:
         raise ValueError(f'Unknown loss name: {loss_name}')
 

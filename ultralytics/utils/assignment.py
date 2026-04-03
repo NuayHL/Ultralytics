@@ -31,6 +31,7 @@ from ultralytics.utils.mla_sub import (TaskAlignedAssigner_Subnet_Scale,
                                        TaskAlignedAssigner_SubN_NG_Uncertainty_S,
                                        TaskAlignedAssigner_ab_uncertainty_joint,
                                        TaskAlignedAssigner_ab_uncertainty_simd_joint)
+from ultralytics.utils.mla_usaa import TaskAlignedAssigner_dyab_dmetric_dscale
 
 from ultralytics.utils.mla_scale import TaskAlignedAssigner_dScale
 from ultralytics.utils.tal import TaskAlignedAssigner
@@ -54,7 +55,8 @@ ASSIGN_USE_STRIDE = (TaskAlignedAssigner_Scale,
                      TaskAlignedAssigner_Subnet_NoGrad_Scale,
                      TaskAlignedAssigner_SubN_NG_Uncertainty_S,
                      TaskAlignedAssigner_ab_uncertainty_joint,
-                     TaskAlignedAssigner_ab_uncertainty_simd_joint)
+                     TaskAlignedAssigner_ab_uncertainty_simd_joint,
+                     TaskAlignedAssigner_dyab_dmetric_dscale)
 
 # bce1 is a mistake so did not add in it
 ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
@@ -267,6 +269,19 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
 
 
             assigner = TaskAlignedAssigner_ab_uncertainty_simd_joint(**_kwargs)
+
+        elif assigner_type == "TaskAlignedAssigner_dyab_dmetric_dscale":
+            _kwargs['dyab_type']           = cfg.get('dyab_type',           'DyabLinearFusion')
+            _kwargs['dyab_kwargs']         = cfg.get('dyab_kwargs',         {})
+            _kwargs['overlap_iou_type']    = cfg.get('overlap_iou_type',    'CIoU')
+            _kwargs['overlap_iou_kwargs']  = cfg.get('overlap_iou_kwargs',  {})
+            _kwargs['align_iou_type']      = cfg.get('align_iou_type',      'Hausdorff')
+            _kwargs['align_iou_kwargs']    = cfg.get('align_iou_kwargs',    {})
+            _kwargs['score_iou_type']      = cfg.get('score_iou_type',      'CIoU')
+            _kwargs['score_iou_kwargs']    = cfg.get('score_iou_kwargs',    {})
+            _kwargs['dscale_func']         = cfg.get('dscale_func',         'static')
+            _kwargs['scale_ratio']         = cfg.get('scale_ratio',         1.0)
+            assigner = TaskAlignedAssigner_dyab_dmetric_dscale(**_kwargs)
 
         # Record assigner
         elif assigner_type == "TaskAlignedAssigner_Record":
