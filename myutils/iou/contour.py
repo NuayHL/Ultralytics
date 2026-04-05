@@ -312,6 +312,7 @@ if __name__ == "__main__":
         ["HATS-fix", "Hausdorff_Ext_L2_fix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 12}],
         ["HATS-rfix", "Hausdorff_Ext_L2_rfix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
         # ["IoU", "IoU", {}],
+        ["HPP", "hausdorff_plateau_peak", {"lambda_h": 2.5, "lambda_c": 5.0, "tau": 4}],
     ]
 
     plot_iou_curve(LOSS_CONFIGS)
@@ -331,6 +332,7 @@ if __name__ == "__main__":
         # ["AlphaIoU", "AlphaIoU", {"alpha": 0.5}],
         ["IoU", "IoU", {}],
         ["SimD1", "SimD", {"sim_x": 6.13, "sim_y": 4.59}],
+        ["HPP", "hausdorff_plateau_peak", {"lambda_h": 2.5, "lambda_c": 5.0, "tau": 4}],
     ]
     # plot_iou_contour(iou_metrics, bbox_size=(60, 60), grid_range=120)
     #

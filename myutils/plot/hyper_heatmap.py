@@ -305,11 +305,11 @@ if __name__ == '__main__':
 
     assert stats_length == (len(custom_area_rng_full) - 1) * 2 + 6
 
-    plot_topk_ab(alpha_range_np, beta_range_np,
-                 topk=2,
-                 hyper_eval_result=hyper_eval_result,
-                 eval_metric_indices=[i+3 for i in range(len(custom_areas))],
-                 area_representatives=area_representatives)
+    # plot_topk_ab(alpha_range_np, beta_range_np,
+    #              topk=2,
+    #              hyper_eval_result=hyper_eval_result,
+    #              eval_metric_indices=[i+3 for i in range(len(custom_areas))],
+    #              area_representatives=area_representatives)
 
-# for i in range(stats_length):
-#         plot_heatmap_for_layer(hyper_eval_result, i, alpha_range_np, beta_range_np)
+for i in range(stats_length):
+        plot_heatmap_for_layer(hyper_eval_result, i, alpha_range_np, beta_range_np)

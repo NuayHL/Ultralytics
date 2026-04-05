@@ -136,7 +136,7 @@ def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml=None,
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Running post-processing...")
 
     cmd = [
-        "python", "myutils/main.py",
+        "python", "myutils/notion_upload.py",
         "--exp-path", f"runs/detect/{exp_prefix}/{exp_name}",
         "--data-path", data_yaml,
     ]

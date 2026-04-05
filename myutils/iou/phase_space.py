@@ -36,6 +36,13 @@ def calculate_metrics(pred_bboxes: torch.Tensor, gt_bbox: torch.Tensor) -> Dict[
                 xywh=True,
                 iou_kargs={"lambda1": 2.5, "lambda2": 1.0},
             ),
+            "HPP": bbox_iou_ext(
+                pred_bboxes,
+                gt_bbox,
+                iou_type="hausdorff_plateau_peak",
+                xywh=True,
+                iou_kargs={"lambda_h": 2.0, "lambda_c": 2.0, "tau": 4},
+            ),
         }
 
     # 防止个别指标出现 nan/inf 导致 contour 报错
@@ -163,7 +170,7 @@ def plot_phase_space_sensitivity(
 
         fig.suptitle(f"Similarity Phase Space ({metric})", fontsize=14)
         # fig.tight_layout()
-        fig.savefig(f"{save_prefix}_{metric.lower()}.png", dpi=300, bbox_inches="tight")
+        fig.savefig(f"iou_illus/{save_prefix}_{metric.lower()}.png", dpi=300, bbox_inches="tight")
 
         if show:
             plt.show()

@@ -224,6 +224,28 @@ def bbox_iou_ext(
     # print("gt_area_avg. :", (w2 * h2 + eps).mean())
     # print("pred_area_avg. :", (w1 * h1 + eps).mean())
 
+    if iou_type == "hausdorff_plateau_peak":
+        lambda_h = iou_kargs.get("lambda_h", 2.5)
+        lambda_c = iou_kargs.get("lambda_c", 5.0)
+        tau = iou_kargs.get("tau", 4)
+        w_max = iou_kargs.get("w_max", 0.8)
+        w_gt = w2.clamp(min=eps)
+        h_gt = h2.clamp(min=eps)
+        d_tl = (b1_x1 - b2_x1).pow(2) + (b1_y1 - b2_y1).pow(2)
+        d_tr = (b1_x2 - b2_x2).pow(2) + (b1_y1 - b2_y1).pow(2)
+        d_br = (b1_x2 - b2_x2).pow(2) + (b1_y2 - b2_y2).pow(2)
+        d_bl = (b1_x1 - b2_x1).pow(2) + (b1_y2 - b2_y2).pow(2)
+        d_h_sq = torch.stack([d_tl, d_tr, d_br, d_bl], dim=-1).max(dim=-1)[0]
+        diag_sq = w_gt.pow(2) + h_gt.pow(2)
+        S_corner = torch.exp(-lambda_h * d_h_sq / diag_sq)
+        cx1, cy1 = (b1_x1 + b1_x2) / 2, (b1_y1 + b1_y2) / 2
+        cx2, cy2 = (b2_x1 + b2_x2) / 2, (b2_y1 + b2_y2) / 2
+        d_center = torch.sqrt((cx1 - cx2).pow(2) + (cy1 - cy2).pow(2) + eps)
+        char_scale = torch.sqrt(w_gt * h_gt)
+        S_cen = torch.exp(-lambda_c * d_center / char_scale)
+        w_gate = S_cen.pow(tau) * w_max
+        return S_corner.pow(1.0 - w_gate) * S_cen.pow(w_gate)
+
     if iou_type in ["l1", "l1_ext", "l1_ext_dy"]:
         d2 = w2.pow(2) + h2.pow(2)
         s2 = w2 * h2 + eps
@@ -489,7 +511,6 @@ def bbox_iou_ext(
         return iou  # IoU
     else:
         raise ValueError(f"Invalid iou_type {iou_type}.")
-
 
 def directed_hausdorff_rect(b1, b2):
     """

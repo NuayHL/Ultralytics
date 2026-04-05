@@ -115,18 +115,19 @@ LOSS_CONFIGS = [
     # ["Hausdorff in Gaussian Kernel", "Hausdorff", {"lambda1": 30}],
     ["Hausdorff in Gaussian Kernel", "Hausdorff", {"lambda1": 2.5}],
     ["Hausdorff in Gaussian Kernel_dy", "Hausdorff_dy", {"lambda1": 2.5}],
-    # ["L2 in Gaussian Kernel", "l1_ext", {"lambda1": 2.5}],
-    # ["L2 in Laplacian Kernel_ori", "l1", {"lambda1": 7.0}],
+    # ["L2 in Laplacian Kernel", "l1_ext", {"lambda1": 7.0}],
+    ["L2 in Laplacian Kernel_ori", "l1", {"lambda1": 7.0}],
     ["HATS", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
-    # ["HATS_reverse", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 0.5, "lambda3": 7, "lg_reverse": True}],
+    ["HATS_reverse", "Hausdorff_Ext_L2", {"lambda1": 2.5, "hybrid_pow": 0.5, "lambda3": 7, "lg_reverse": True}],
     # ["HATS_false", "Hausdorff_Ext_L2", {"lambda1": 2.5 / 4000, "hybrid_pow": 4, "lambda3": 7 / 100.0}],
-    ["HATS_rfix", "Hausdorff_Ext_L2_rfix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7, "slop":2, "bias":30}],
+    # ["HATS_rfix", "Hausdorff_Ext_L2_rfix", {"lambda1": 2.5, "hybrid_pow": 4, "lambda3": 7}],
     ["NWD", "NWD", {"nwd_c": 12}],
     # ["SimD", "SimD", {"sim_x": 6.13, "sim_y": 4.59}],
     # ["IoU", "IoU", {}],
+    ["HPP", "hausdorff_plateau_peak", {"lambda_h": 2.0, "lambda_c": 2.0, "tau": 4}],
 ]
 
-_size = 5
+_size = 40
 _size_gt = _size
 RANGE = _size * 3
 GT_BBOX_SIZE = [_size_gt, _size_gt]
@@ -197,5 +198,5 @@ for ax in [ax1, ax2]:
     ax.set_xticks(np.arange(-RANGE, RANGE+1, 10))
     ax.set_xlim(-(RANGE+1), (RANGE+1))
 
-plt.savefig('hausdorff_iou_loss_comparison.png', dpi=200, bbox_inches='tight')
+plt.savefig('iou_illus/loss_landscape.png', dpi=200, bbox_inches='tight')
 # plt.show()
