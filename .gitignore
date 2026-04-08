@@ -181,5 +181,10 @@ assign_record
 heatmaps*
 img_temp
 terminal_log
-
+*.npy
+*.png
+*.jpg
+*.jpeg
+*.json
+*.tmp
 /hyper_scale/models/

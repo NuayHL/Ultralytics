@@ -242,10 +242,11 @@ class DyabInverseVariance(DyabBase):
       sigma_0:    1.0
     """
 
-    def __init__(self, alpha_base=1.0, beta_base=6.0, sigma_0=1.0):
+    def __init__(self, alpha_base=1.0, beta_base=6.0, sigma_0=1.0, rho_min=0.0):
         self.alpha_base = alpha_base
         self.beta_base  = beta_base
         self.sigma_0_sq = sigma_0 ** 2
+        self.rho_min = rho_min
 
     def compute(self, uncertainty, gt_bboxes, n_max_boxes, na, device):
         """
@@ -274,7 +275,8 @@ class DyabInverseVariance(DyabBase):
         v = q / (r_sq + 1e-9)                               # (bs, n_max_boxes, na)
 
         # ── Reliability ratio: ρ = σ₀² / (σ₀² + v) ─────────────────────
-        rho = self.sigma_0_sq / (self.sigma_0_sq + v)        # ∈ (0, 1]
+        rho_raw = self.sigma_0_sq / (self.sigma_0_sq + v)        # ∈ (0, 1]
+        rho = self.rho_min + (1.0 - self.rho_min) * rho_raw
 
         # ── Dynamic exponents ────────────────────────────────────────────
         alpha = self.alpha_base * (2.0 - rho)
