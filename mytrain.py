@@ -326,9 +326,71 @@ if __name__ == "__main__":
              trainer=None, other_train_kwargs=other_train_kwargs),
     ]
 
-    do_hituav(EXP_LIST_usaa_s_sigma)
-    # do_visdrone(EXP_LIST)
-    # do_hituav(EXP_LIST)
+    EXP_LIST_usaa_s_tau = [
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma400_pp_lc20_lh20.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "tau"],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma400_pp_lc20_lh20.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma400_pp_lc20_lh25.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "tau"],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma400_pp_lc20_lh25.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma400_pp_lc25_lh20.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "tau"],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma400_pp_lc25_lh20.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma400_pp_lc25_lh25.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "tau"],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma400_pp_lc25_lh25.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+    ]
+
+    EXP_LIST_usaa_aitod = [
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma400.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa",],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma400.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma400_pp_lc20_lh25.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "tau"],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma400_pp_lc20_lh25.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+    ]    
+    EXP_LIST_usaa_aitod_wmax = [
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma400_pp_lc20_lh25_wmax_50.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "tau"],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma400_pp_lc20_lh25_wmax_50.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+    ]
+
+    EXP_LIST_usaa_ablations = [
+        dict(exp_name="yolo12s_usaa_raw_dyabIV_sigma400.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "tau"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_dyabIV_sigma400.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_nosimd_dyabIV_sigma400.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "tau"],
+             model_yaml="cfg/usaa/yolo12s_usaa_nosimd_dyabIV_sigma400.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+    ]
+
+    EXP_LIST_usaa_s_sigma_detail = [
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma250.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa",],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma250.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma300.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa",],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma300.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_dyabIV_sigma350.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa",],
+             model_yaml="cfg/usaa/yolo12s_usaa_dyabIV_sigma350.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+    ]
+
+    # do_aitodv2(EXP_LIST_usaa_aitod)
+    do_hituav(EXP_LIST_usaa_s_sigma_detail)
+    do_visdrone(EXP_LIST_usaa_s_sigma_detail)
 
     # EXP_LIST = [
     #     dict(exp_name="yolo12s.yaml",
