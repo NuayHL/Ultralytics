@@ -188,3 +188,4 @@ terminal_log
 *.json
 *.tmp
 /hyper_scale/models/
+.claude

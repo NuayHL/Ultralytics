@@ -134,6 +134,13 @@ class DyabBase:
     def compute(self, uncertainty, gt_bboxes, n_max_boxes, na, device):
         raise NotImplementedError
 
+class FixedAB(DyabBase):
+    """Fixed α/β values."""
+    def __init__(self, alpha, beta):
+        self.alpha = alpha
+        self.beta = beta
+    def compute(self, uncertainty, gt_bboxes, n_max_boxes, na, device):
+        return self.alpha, self.beta
 
 class DyabLinearFusion(DyabBase):
     """
@@ -284,10 +291,97 @@ class DyabInverseVariance(DyabBase):
 
         return alpha, beta
 
+class DyabBudgetShift(DyabBase):
+    """
+    Budget-preserving linear shift: α+β = const.
+
+    α_i = α₀ + Δ·(1-ρ_i)
+    β_i = β₀ - Δ·(1-ρ_i)
+
+    Only depends on GT area. No DFL, no per-anchor uncertainty.
+
+    YAML:
+      dyab_type: DyabBudgetShift
+      dyab_kwargs:
+        alpha_base: 1.0
+        beta_base:  4.0
+        delta:      1.5
+        r_ref:      32.0
+    """
+    def __init__(self, alpha_base=1.0, beta_base=4.0,
+                 delta=1.5, r_ref=32.0):
+        self.alpha_base = alpha_base
+        self.beta_base  = beta_base
+        self.delta      = delta
+        self.r_ref_sq   = r_ref ** 2
+
+    def compute(self, uncertainty, gt_bboxes, n_max_boxes, na, device):
+        gt_w = (gt_bboxes[..., 2] - gt_bboxes[..., 0]).clamp(min=1.0)
+        gt_h = (gt_bboxes[..., 3] - gt_bboxes[..., 1]).clamp(min=1.0)
+        r_sq = gt_w * gt_h
+        rho  = r_sq / (r_sq + self.r_ref_sq)           # (bs, n_max_boxes)
+
+        shift = self.delta * (1.0 - rho)                # (bs, n_max_boxes)
+        alpha = self.alpha_base + shift                  # (bs, n_max_boxes)
+        beta  = self.beta_base  - shift                  # (bs, n_max_boxes)
+
+        # expand to (bs, n_max_boxes, na)
+        alpha = alpha.unsqueeze(-1).expand(-1, -1, na)
+        beta  = beta.unsqueeze(-1).expand(-1, -1, na)
+        return alpha, beta
+
+class DyabCalibrationAware(DyabBase):
+    """
+    Calibration-aware α/β: compensates for cls compression
+    induced by area-refine soft label calibration.
+
+    When calibration boosts the soft label ceiling, the ranking
+    must become SHARPER (higher α+β) to prevent false positives.
+    Within the larger budget, β gets the lion's share because
+    cls discrimination is compressed by calibration.
+
+    α_i = α₀ - Δα·(1-ρ_i)     (cls share decreases)
+    β_i = β₀ + Δβ·(1-ρ_i)     (reg share increases + extra sharpness)
+
+    α+β = S₀ + (Δβ-Δα)·(1-ρ)  (total budget increases for small obj)
+
+    YAML:
+      dyab_type: DyabCalibrationAware
+      dyab_kwargs:
+        alpha_base: 1.0
+        beta_base: 4.0
+        delta_alpha: 0.5
+        delta_beta: 2.0
+        r_ref: 32.0
+    """
+    def __init__(self, alpha_base=1.0, beta_base=4.0,
+                 delta_alpha=0.5, delta_beta=2.0, r_ref=32.0):
+        self.alpha_base  = alpha_base
+        self.beta_base   = beta_base
+        self.delta_alpha = delta_alpha
+        self.delta_beta  = delta_beta
+        self.r_ref_sq    = r_ref ** 2
+
+    def compute(self, uncertainty, gt_bboxes, n_max_boxes, na, device):
+        gt_w = (gt_bboxes[..., 2] - gt_bboxes[..., 0]).clamp(min=1.0)
+        gt_h = (gt_bboxes[..., 3] - gt_bboxes[..., 1]).clamp(min=1.0)
+        r_sq = gt_w * gt_h
+        rho  = r_sq / (r_sq + self.r_ref_sq)
+
+        c    = 1.0 - rho                                # calibration strength
+        alpha = self.alpha_base - self.delta_alpha * c   # α decreases
+        beta  = self.beta_base  + self.delta_beta  * c   # β increases
+
+        return (alpha.unsqueeze(-1).expand(-1, -1, na),
+                beta.unsqueeze(-1).expand(-1, -1, na))
+
 # Registry: map YAML string → DyabBase subclass
 DYAB_REGISTRY = {
     'DyabLinearFusion': DyabLinearFusion,
     'DyabInverseVariance':   DyabInverseVariance,
+    'DyabBudgetShift': DyabBudgetShift,
+    'DyabCalibrationAware': DyabCalibrationAware,
+    'FixedAB' : FixedAB
 }
 
 
@@ -496,3 +590,114 @@ class TaskAlignedAssigner_dyab_dmetric_dscale(TaskAlignedAssigner_Scale):
     def iou_calculation(self, gt_bboxes, pd_bboxes, iou_type=None, iou_kwargs=None):
         return bbox_iou_ext(pd_bboxes, gt_bboxes, xywh=False,
                             iou_type=iou_type, iou_kargs=iou_kwargs).squeeze(-1).clamp_(0)
+
+class TaskAlignedAssigner_dyab_dmetric_dscale_RefineArea(TaskAlignedAssigner_dyab_dmetric_dscale):
+    """
+    Variant of TaskAlignedAssigner_dyab_dmetric_dscale that rescales ``overlaps``
+    by a per-GT scale factor before it feeds the soft-label normalization in
+    ``_forward`` (see parent class line 474: ``pos_overlaps`` → ``norm_align_metric``).
+
+    Per-GT scale factor (only depends on object size, not on anchor):
+        ρ_i = 1 / (1 + (r_ref / r_i)²),    r_i = sqrt(w_i · h_i)
+
+    Final overlap used for the soft-label:
+        overlaps' = overlaps ** ρ_i
+
+    Behaviour:
+        • r_i ≪ r_ref (small objects): ρ_i → 0  →  overlaps' → 1  (boost)
+        • r_i ≫ r_ref (large objects): ρ_i → 1  →  overlaps' ≈ overlaps  (unchanged)
+
+    Only one new hyperparameter is introduced: ``r_ref`` (default 32).
+
+    YAML example
+    ------------
+    assigner_type: TaskAlignedAssigner_dyab_dmetric_dscale_RefineArea
+    r_ref: 32
+    # ... other dyab/dmetric/dscale kwargs identical to the parent class.
+    """
+    def __init__(self, topk=13, num_classes=80,
+                 alpha=None, beta=None, eps=1e-9,
+                 r_ref=32.0, **kwargs):
+        super().__init__(topk=topk, num_classes=num_classes,
+                         alpha=alpha, beta=beta, eps=eps, **kwargs)
+        self.r_ref = r_ref
+        self.r_ref_type = kwargs.get('r_ref_type', 'pow')
+        self.r_ref_use_adaptive = kwargs.get('r_ref_use_adaptive', False)
+        print(f"r_ref_type: {self.r_ref_type}")
+        print(f"r_ref_use_adaptive: {self.r_ref_use_adaptive}")
+
+    def _forward(self, pd_scores, pd_bboxes, uncertainty,
+                 anc_points, gt_labels, gt_bboxes, mask_gt, stride):
+        mask_pos, align_metric, overlaps = self.get_pos_mask(
+            pd_scores, pd_bboxes, uncertainty, gt_labels, gt_bboxes,
+            anc_points, mask_gt, stride,
+        )
+        # ── 冲突解决：用原始 overlaps（未校准）──────────────
+        target_gt_idx, fg_mask, mask_pos = self.select_highest_overlaps(
+            mask_pos, overlaps, self.n_max_boxes
+        )
+        target_labels, target_bboxes, target_scores = self.get_targets(
+            gt_labels, gt_bboxes, target_gt_idx, fg_mask
+        )
+
+        # ── 计算 per-GT ρ ─────────────────────────────────
+        gt_w = (gt_bboxes[..., 2] - gt_bboxes[..., 0]).clamp(min=1.0)
+        gt_h = (gt_bboxes[..., 3] - gt_bboxes[..., 1]).clamp(min=1.0)
+        r_sq = gt_w * gt_h
+
+        # ── temp: log r_sq stats ────────────────────────────
+        # _log_dir = "/home/haoyuan/Ultralytics/logs"  # ← 手动改路径
+        # _log_file = 'r_sq_stats_aitod.csv'
+        # import os
+        # os.makedirs(_log_dir, exist_ok=True)
+        # _valid = mask_gt.squeeze(-1).bool()
+        # _v = r_sq[_valid].detach().cpu()
+        # if _v.numel() > 0:
+        #     _stats = dict(
+        #         n=int(_v.numel()),
+        #         mean=float(_v.float().mean()),
+        #         median=float(_v.float().median()),
+        #         std=float(_v.float().std(unbiased=False)),
+        #         min=float(_v.float().min()),
+        #         max=float(_v.float().max()),
+        #     )
+        #     _log_path = os.path.join(_log_dir, _log_file)
+        #     _write_header = not os.path.exists(_log_path)
+        #     with open(_log_path, "a") as f:
+        #         import time
+        #         if _write_header:
+        #             f.write("timestamp,n,mean,median,std,min,max\n")
+        #         f.write(f"{time.time()},{_stats['n']},{_stats['mean']:.4f},{_stats['median']:.4f},{_stats['std']:.4f},{_stats['min']:.4f},{_stats['max']:.4f}\n")
+        # ─────────────────────────────────────────────────────
+
+        if self.r_ref_use_adaptive:
+            valid = mask_gt.squeeze(-1).bool()
+            valid_r_sq = r_sq[valid]                               # (N_valid,)
+            if valid_r_sq.numel() > 0:
+                r_ref_sq = valid_r_sq.median().detach()
+            else:
+                r_ref_sq = self.r_ref**2
+        else:
+            r_ref_sq = self.r_ref**2
+            
+        rho  = r_sq / (r_sq + r_ref_sq)  # (bs, n_max_boxes)
+        rho  = rho.unsqueeze(-1)                  # (bs, n_max_boxes, 1)
+
+        # ── soft label：只校准 pos_overlaps 上界 ──────────
+        align_metric      = align_metric * mask_pos
+        pos_align_metrics = align_metric.amax(dim=-1, keepdim=True)
+        pos_overlaps      = (overlaps * mask_pos).amax(dim=-1, keepdim=True)
+
+        # ★ 唯一改动：上界校准
+        if self.r_ref_type == "pow":
+            pos_overlaps_cal  = pos_overlaps.pow(rho)
+        elif self.r_ref_type == "add_1":
+            pos_overlaps_cal = pos_overlaps + (1.0 - rho) * pos_overlaps * (1.0 - pos_overlaps)
+        else:
+            pos_overlaps_cal  = pos_overlaps
+
+        norm_align_metric = (align_metric * pos_overlaps_cal /
+                             (pos_align_metrics + self.eps)).amax(-2).unsqueeze(-1)
+        target_scores     = target_scores * norm_align_metric
+
+        return target_labels, target_bboxes, target_scores, fg_mask.bool(), target_gt_idx

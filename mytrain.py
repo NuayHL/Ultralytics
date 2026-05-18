@@ -206,6 +206,14 @@ def do_visdrone(exp_list):
         exp_list=exp_list
     )
 
+def chg_train_args(exp_list, train_kwargs):
+    """For modifying train args of a list of experiments, returning a new list."""
+    from copy import deepcopy
+    exp_list_rt = deepcopy(exp_list)
+    for exp in exp_list_rt:
+        exp["other_train_kwargs"] = train_kwargs.copy()
+    return exp_list
+
 if __name__ == "__main__":
     # EXP_LIST = [
         # dict(exp_name="v12s_topk7_no_amp",
@@ -388,9 +396,90 @@ if __name__ == "__main__":
              trainer=None, other_train_kwargs=other_train_kwargs),
     ]
 
+    EXP_LIST_usaa_ra_aitod = [
+        dict(exp_name="yolo12s_usaa_raw_ra16_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_ra16_rtadd.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+        dict(exp_name="yolo12s_usaa_raw_ra32_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_ra32_rtadd.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+        dict(exp_name="yolo12s_usaa_raw_ra64_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_ra64_rtadd.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+    ]
+
+    EXP_LIST_usaa_ra_visdrone = [
+        dict(exp_name="yolo12s_usaa_raw_ra16_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_ra16_rtadd.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_raw_ra32_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_ra32_rtadd.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_raw_ra64_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_ra64_rtadd.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+    ]
+
+    EXP_LIST_usaa_ra_dy_aitod = [
+        dict(exp_name="yolo12s_usaa_raw_ra32_dy_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_ra32_dy_rtadd.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+        dict(exp_name="yolo12s_usaa_raw_ra32_dy.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_ra32_dy.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+    ]
+
+    EXP_LIST_usaa_ra_dy_visdrone = [
+        dict(exp_name="yolo12s_usaa_raw_ra32_dy_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_ra32_dy_rtadd.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_raw_ra32_dy.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_ra32_dy.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+    ]
+
+    EXP_LIST_usaa_dyab_ra_visdrone = [
+        dict(exp_name="yolo12s_usaa_raw_a1b4_ra32_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_a1b4_ra32_rtadd.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+        dict(exp_name="yolo12s_usaa_raw_dyabbug_ra32_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_dyabbug_ra32_rtadd.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+    ]
+
+    EXP_LIST_usaa_dyabcal_ra_visdrone = [
+        dict(exp_name="yolo12s_usaa_raw_dyabcalra64_ra32_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_dyabcalra64_ra32_rtadd.yaml",
+             trainer=None, other_train_kwargs=other_train_kwargs),
+    ]
+
+    EXP_LIST_usaa_dyabcal_ra_aitod = [
+        dict(exp_name="yolo12s_usaa_raw_dyabcalra64_ra32_rtadd.yaml",
+             extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_dyabcalra64_ra32_rtadd.yaml",
+             trainer=None, other_train_kwargs=aitod_train_kwargs),
+    ]
+
     # do_aitodv2(EXP_LIST_usaa_aitod)
-    do_hituav(EXP_LIST_usaa_s_sigma_detail)
-    do_visdrone(EXP_LIST_usaa_s_sigma_detail)
+    # do_hituav(EXP_LIST_usaa_s_sigma_detail)
+    # do_visdrone(EXP_LIST_usaa_s_sigma_detail)
+
+    # ── RefineArea (ρ_i overlap rescale) validation ───────────────────────
+    do_visdrone(EXP_LIST_usaa_dyabcal_ra_visdrone)
+    do_aitodv2(EXP_LIST_usaa_dyabcal_ra_aitod)
 
     # EXP_LIST = [
     #     dict(exp_name="yolo12s.yaml",
