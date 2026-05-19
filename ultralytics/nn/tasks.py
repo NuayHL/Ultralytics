@@ -760,8 +760,22 @@ class RTDETRDetectionModel(DetectionModel):
 
     def init_criterion(self):
         """Initialize the loss criterion for the RTDETRDetectionModel."""
-        from ultralytics.models.utils.loss import RTDETRDetectionLoss
+        from ultralytics.models.utils.loss import RTDETRDetectionLoss, RTDETRDetectionLoss_USAA
 
+        loss_type = self.yaml.get("loss_type", "default")
+        if loss_type == "usaa":
+            return RTDETRDetectionLoss_USAA(
+                nc=self.nc,
+                use_vfl=True,
+                # ── Scale-aware cost reweighting (HungarianMatcher) ──
+                r_ref_ab=self.yaml.get("r_ref_ab", 64.0),
+                cls_reduction=self.yaml.get("cls_reduction", 0.5),
+                spatial_boost=self.yaml.get("spatial_boost", 0.5),
+                # ── Soft-label calibration ──
+                use_soft_label_cal=self.yaml.get("use_soft_label_cal", True),
+                r_ref_cal=self.yaml.get("r_ref_cal", 32.0),
+                cal_type=self.yaml.get("cal_type", "add_1"),
+            )
         return RTDETRDetectionLoss(nc=self.nc, use_vfl=True)
 
     def loss(self, batch, preds=None):

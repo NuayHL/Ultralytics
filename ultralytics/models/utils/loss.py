@@ -12,6 +12,7 @@ from ultralytics.utils.loss import FocalLoss, VarifocalLoss
 from ultralytics.utils.metrics import bbox_iou
 
 from .ops import HungarianMatcher
+from .mla_detr import HungarianMatcher_ScaleAware
 
 
 class DETRLoss(nn.Module):
@@ -476,3 +477,156 @@ class RTDETRDetectionLoss(DETRLoss):
             else:
                 dn_match_indices.append((torch.zeros([0], dtype=torch.long), torch.zeros([0], dtype=torch.long)))
         return dn_match_indices
+
+
+class RTDETRDetectionLoss_USAA(RTDETRDetectionLoss):
+    """
+    RT-DETR Detection Loss with USAA-style scale-aware cost reweighting and
+    soft-label calibration for small-object detection.
+
+    This class extends ``RTDETRDetectionLoss`` with two modifications inspired
+    by the USAA (Uncertainty-Scale-Adaptive Assignment) framework:
+
+    **Change 1 — Matcher**: Replaces ``HungarianMatcher`` with
+    ``HungarianMatcher_ScaleAware``, which applies per-GT dynamic cost weights.
+    For small objects the cls cost weight is reduced and the spatial cost weight
+    is increased. ρ directly modulates the cost_gain coefficients without
+    introducing YOLO-specific α/β exponent concepts.
+
+    **Change 2 — Supervision**: Calibrates the IoU-based soft label assigned to
+    each matched query-GT pair:
+
+        f(u, ρ) = u + (1 − ρ) · u · (1 − u)
+
+    where ρ_i = r_i² / (r_i² + r_ref_cal²).  The Bernoulli-variance term
+    u(1−u) is small early in training (safe), maximal at intermediate IoU
+    (compensation), and decays as IoU → 1 (convergence).
+
+    YAML example
+    ------------
+    loss_type: usaa
+    r_ref_ab: 64.0              # cost_gain modulation reference size
+    cls_reduction: 0.5           # max reduction of class cost_gain (small obj)
+    spatial_boost: 0.5           # max boost of spatial cost_gain (small obj)
+    r_ref_cal: 32.0             # soft-label calibration reference size
+    cal_type: add_1
+    """
+
+    def __init__(
+        self,
+        nc: int = 80,
+        loss_gain: dict[str, float] | None = None,
+        aux_loss: bool = True,
+        use_fl: bool = True,
+        use_vfl: bool = False,
+        use_uni_match: bool = False,
+        uni_match_ind: int = 0,
+        gamma: float = 1.5,
+        alpha: float = 0.25,
+        # ── USAA: matcher (scale-aware cost reweighting) ──
+        r_ref_ab: float = 64.0,
+        cls_reduction: float = 0.5,
+        spatial_boost: float = 0.5,
+        # ── USAA: soft-label calibration ──
+        use_soft_label_cal: bool = True,
+        r_ref_cal: float = 32.0,
+        cal_type: str = "add_1",
+    ):
+        super().__init__(
+            nc=nc,
+            loss_gain=loss_gain,
+            aux_loss=aux_loss,
+            use_fl=use_fl,
+            use_vfl=use_vfl,
+            use_uni_match=use_uni_match,
+            uni_match_ind=uni_match_ind,
+            gamma=gamma,
+            alpha=alpha,
+        )
+        # Override matcher with scale-aware variant
+        self.matcher = HungarianMatcher_ScaleAware(
+            cost_gain={"class": 2, "bbox": 5, "giou": 2},
+            r_ref_ab=r_ref_ab,
+            cls_reduction=cls_reduction,
+            spatial_boost=spatial_boost,
+        )
+        self.use_soft_label_cal = use_soft_label_cal
+        self.r_ref_cal = r_ref_cal
+        self.cal_type = cal_type
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Soft-label calibration
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _calibrate_soft_label(self, iou: torch.Tensor, gt_bboxes_matched: torch.Tensor) -> torch.Tensor:
+        """
+        Calibrate IoU-based soft labels for small objects.
+
+        f(u, ρ) = u + (1 − ρ) · u · (1 − u)
+
+        where ρ_i = r_i² / (r_i² + r_ref_cal²).
+
+        Args:
+            iou: (num_matched,) raw IoU between matched pred and GT boxes.
+            gt_bboxes_matched: (num_matched, 4) matched GT boxes in xywh.
+
+        Returns:
+            (num_matched,) calibrated IoU values.
+        """
+        if not self.use_soft_label_cal:
+            return iou
+        gt_w = gt_bboxes_matched[:, 2]
+        gt_h = gt_bboxes_matched[:, 3]
+        r_sq = (gt_w * gt_h).clamp(min=1.0)
+
+        # ρ_i = r_i² / (r_i² + r_ref_cal²)   — same as RefineArea in mla_usaa.py
+        rho = r_sq / (r_sq + self.r_ref_cal ** 2)
+
+        if self.cal_type == "add_1":
+            # f(u,ρ) = u + (1-ρ) · u · (1-u)   — Bernoulli-variance calibration
+            iou = iou + (1.0 - rho) * iou * (1.0 - iou)
+        elif self.cal_type == "pow":
+            iou = iou.pow(rho)
+        # else: no calibration (fallback)
+
+        return iou
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Override _get_loss to inject soft-label calibration
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _get_loss(
+        self,
+        pred_bboxes: torch.Tensor,
+        pred_scores: torch.Tensor,
+        gt_bboxes: torch.Tensor,
+        gt_cls: torch.Tensor,
+        gt_groups: list[int],
+        masks: torch.Tensor | None = None,
+        gt_mask: torch.Tensor | None = None,
+        postfix: str = "",
+        match_indices: list[tuple] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        if match_indices is None:
+            match_indices = self.matcher(
+                pred_bboxes, pred_scores, gt_bboxes, gt_cls, gt_groups, masks=masks, gt_mask=gt_mask
+            )
+
+        idx, gt_idx = self._get_index(match_indices)
+        pred_bboxes, gt_bboxes = pred_bboxes[idx], gt_bboxes[gt_idx]
+
+        bs, nq = pred_scores.shape[:2]
+        targets = torch.full((bs, nq), self.nc, device=pred_scores.device, dtype=gt_cls.dtype)
+        targets[idx] = gt_cls[gt_idx]
+
+        gt_scores = torch.zeros([bs, nq], device=pred_scores.device)
+        if len(gt_bboxes):
+            iou = bbox_iou(pred_bboxes.detach(), gt_bboxes, xywh=True).squeeze(-1)
+            # ★ Soft-label calibration (same formula as RefineArea in mla_usaa.py)
+            iou = self._calibrate_soft_label(iou, gt_bboxes)
+            gt_scores[idx] = iou
+
+        return {
+            **self._get_loss_class(pred_scores, targets, gt_scores, len(gt_bboxes), postfix),
+            **self._get_loss_bbox(pred_bboxes, gt_bboxes, postfix),
+        }

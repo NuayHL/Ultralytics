@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from ultralytics import YOLO
+from ultralytics import YOLO, RTDETR
 from ultralytics.utils import YAML
 from ultralytics.models.yolo.detect import DetectionTrainerWithDynamicAssigner
 
@@ -69,7 +69,7 @@ class LogLogger:
 
 
 def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml=None, log_root=None, trainer=None,
-                   other_train_kwargs={}, no_files_upload=False):
+                   other_train_kwargs={}, model_type='yolo', no_files_upload=False):
     """
     Runs a single training experiment and triggers the post-processing script.
     
@@ -82,13 +82,18 @@ def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml=None,
         log_root: 日志根目录
         trainer: Trainer 类，如果为 None 则使用默认 Trainer
         other_train_kwargs: 其它训练参数
+        model_type: 模型类型，'yolo' 或 'rtdetr'
+        no_files_upload: 是否不上传文件
     """
 
+    assert model_type in ['yolo', 'rtdetr'], 'model_type must be yolo or rtdetr'
+    _model = YOLO if model_type == 'yolo' else RTDETR
+    
     log_file = log_root / f"{exp_name}.log"
     project_path = f"{exp_prefix}/{exp_name}"
     print(f"Log file: {log_file}")
     print(f"Project path: {project_path}")
-
+    print(f"Model Type: {model_type}")
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Starting Experiment: {exp_name}...")
 
     # 1. Train with log redirection
@@ -96,17 +101,17 @@ def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml=None,
     with LogLogger(log_file):
         print(f"Experiment: {exp_name}")
         print(f"Start Time: {datetime.now()}")
-
+        print(f"Model Type: {model_type}")
         # Initialize model — resume path or fresh yaml
         is_resume = other_train_kwargs.get('resume', False)
         if is_resume:
             last_pt = Path("runs/detect") / project_path / "weights" / "last.pt"
             _backup_last_pt(last_pt)
-            model = YOLO(str(last_pt))
+            model = _model(str(last_pt))
         else:
             if model_yaml is None:
                 raise ValueError(f"model_yaml must be provided when resume=False (exp: {exp_name})")
-            model = YOLO(model_yaml)
+            model = _model(model_yaml)
         
         # 准备训练参数
         train_kwargs = {
@@ -160,7 +165,8 @@ def run_experiment(exp_name, extra_tags, exp_prefix, data_yaml, model_yaml=None,
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Post-processing failed with error code {result.returncode}.\n")
 
 def main(exp_prefix="hituav", data_yaml="ultralytics/cfg/datasets/hit-uav.yaml", no_files_upload=False,
-         exp_list=[{"exp_name": "v12s_record", "extra_tags": ["v12", "v12s", "baseline"]},],):
+         exp_list=[{"exp_name": "v12s_record", "extra_tags": ["v12", "v12s", "baseline"]},], 
+         model_type='yolo'):
 
     log_root = Path("terminal_log") / f"terminal_log_{exp_prefix}"
     os.makedirs(log_root, exist_ok=True)
@@ -176,34 +182,38 @@ def main(exp_prefix="hituav", data_yaml="ultralytics/cfg/datasets/hit-uav.yaml",
             log_root=log_root,
             trainer=exp.get("trainer", None),
             other_train_kwargs=exp.get("other_train_kwargs", {}),
-            no_files_upload=no_files_upload
+            no_files_upload=no_files_upload,
+            model_type=model_type
         )
 
-def do_hituav(exp_list):
+def do_hituav(exp_list, model_type='yolo'):
     exp_prefix = "hituav"
     data_yaml = "ultralytics/cfg/datasets/hit-uav.yaml"
     main(
         exp_prefix=exp_prefix,
         data_yaml=data_yaml,
-        exp_list=exp_list
+        exp_list=exp_list,
+        model_type=model_type
     )
 
-def do_aitodv2(exp_list):
+def do_aitodv2(exp_list, model_type='yolo'):
     exp_prefix = "aitodv2"
     data_yaml = "ultralytics/cfg/datasets/ai-todv2.yaml"
     main(
         exp_prefix=exp_prefix,
         data_yaml=data_yaml,
-        exp_list=exp_list
+        exp_list=exp_list,
+        model_type=model_type
     )
 
-def do_visdrone(exp_list):
+def do_visdrone(exp_list, model_type='yolo'):
     exp_prefix = "visdrone"
     data_yaml = "ultralytics/cfg/datasets/VisDrone.yaml"
     main(
         exp_prefix=exp_prefix,
         data_yaml=data_yaml,
-        exp_list=exp_list
+        exp_list=exp_list,
+        model_type=model_type
     )
 
 def chg_train_args(exp_list, train_kwargs):
@@ -248,6 +258,8 @@ if __name__ == "__main__":
     other_train_kwargs = dict(optimizer="SGD", lr0=0.01, lrf=0.01, cos_lr=False, mosaic=0.5, close_mosaic=15)
     aitod_train_kwargs = dict(optimizer="SGD", lr0=0.01, lrf=0.01, cos_lr=False, mosaic=1.0, close_mosaic=15)
     
+
+
     EXP_LIST_aitodv2_small = [
         dict(exp_name="yolo12s_none_mk2_simd_joint.yaml",
              extra_tags=["v12", "v12s", "new_pip", "scale", "hats"],
@@ -460,16 +472,16 @@ if __name__ == "__main__":
     ]
 
     EXP_LIST_usaa_dyabcal_ra_visdrone = [
-        dict(exp_name="yolo12s_usaa_raw_dyabcalra64_ra32_rtadd.yaml",
+        dict(exp_name="yolo12s_usaa_raw_dyabcalra64_ra32_rtadd_s10.yaml",
              extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
-             model_yaml="cfg/usaa/yolo12s_usaa_raw_dyabcalra64_ra32_rtadd.yaml",
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_dyabcalra64_ra32_rtadd_s10.yaml",
              trainer=None, other_train_kwargs=other_train_kwargs),
     ]
 
     EXP_LIST_usaa_dyabcal_ra_aitod = [
-        dict(exp_name="yolo12s_usaa_raw_dyabcalra64_ra32_rtadd.yaml",
+        dict(exp_name="yolo12s_usaa_raw_dyabcalra64_ra32_rtadd_s10.yaml",
              extra_tags=["v12", "v12s", "new_pip", "usaa", "refine_area"],
-             model_yaml="cfg/usaa/yolo12s_usaa_raw_dyabcalra64_ra32_rtadd.yaml",
+             model_yaml="cfg/usaa/yolo12s_usaa_raw_dyabcalra64_ra32_rtadd_s10.yaml",
              trainer=None, other_train_kwargs=aitod_train_kwargs),
     ]
 
@@ -477,9 +489,34 @@ if __name__ == "__main__":
     # do_hituav(EXP_LIST_usaa_s_sigma_detail)
     # do_visdrone(EXP_LIST_usaa_s_sigma_detail)
 
-    # ── RefineArea (ρ_i overlap rescale) validation ───────────────────────
-    do_visdrone(EXP_LIST_usaa_dyabcal_ra_visdrone)
-    do_aitodv2(EXP_LIST_usaa_dyabcal_ra_aitod)
+    # ── RT-DETR USAA experiments ──────────────────────────────────────────
+    rtdetr_train_kwargs = dict(
+        optimizer="AdamW",
+        lr0=0.0001,
+        lrf=0.01,
+        weight_decay=0.0001,
+        warmup_epochs=3,
+        cos_lr=True,
+        amp=True,
+        patience=50,
+        mosaic=1.0,
+        mixup=0.0,
+        close_mosaic=15,
+        batch=8,
+        imgsz=640,
+        epochs=150,
+    )
+
+    EXP_LIST_rtdetr_usaa = [
+        dict(exp_name="rtdetr-resnet50-usaa.yaml",
+             extra_tags=["rtdetr", "usaa"],
+             model_yaml="cfg/rt-detr/rtdetr-resnet50-usaa.yaml",
+             trainer=None, other_train_kwargs=rtdetr_train_kwargs),
+    ]
+
+    do_hituav(EXP_LIST_rtdetr_usaa, model_type='rtdetr')
+    do_visdrone(EXP_LIST_rtdetr_usaa, model_type='rtdetr')
+    do_aitodv2(EXP_LIST_rtdetr_usaa, model_type='rtdetr')
 
     # EXP_LIST = [
     #     dict(exp_name="yolo12s.yaml",
