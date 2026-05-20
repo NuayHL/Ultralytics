@@ -189,3 +189,5 @@ terminal_log
 *.tmp
 /hyper_scale/models/
 .claude
+logs
+notion_key.yaml

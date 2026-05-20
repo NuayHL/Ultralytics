@@ -136,11 +136,7 @@ class HungarianMatcher(nn.Module):
         cost_giou = 1.0 - bbox_iou(pred_bboxes.unsqueeze(1), gt_bboxes.unsqueeze(0), xywh=True, GIoU=True).squeeze(-1)
 
         # Combine costs into final cost matrix
-        C = (
-            self.cost_gain["class"] * cost_class
-            + self.cost_gain["bbox"] * cost_bbox
-            + self.cost_gain["giou"] * cost_giou
-        )
+        C = self._get_cost_matrix(cost_class, cost_bbox, cost_giou, gt_bboxes)
 
         # Add mask costs if available
         if self.with_mask:
@@ -156,6 +152,25 @@ class HungarianMatcher(nn.Module):
             (torch.tensor(i, dtype=torch.long), torch.tensor(j, dtype=torch.long) + gt_groups[k])
             for k, (i, j) in enumerate(indices)
         ]
+
+    def _get_cost_matrix(self, cost_class, cost_bbox, cost_giou, gt_bboxes):
+        """
+        Combine classification, bbox, and giou costs into a single cost matrix.
+
+        Args:
+            cost_class: Classification cost, shape (bs*nq, num_gts).
+            cost_bbox: L1 bbox cost, shape (bs*nq, num_gts).
+            cost_giou: GIoU cost, shape (bs*nq, num_gts).
+            gt_bboxes: Ground truth boxes in xywh, shape (num_gts, 4).
+
+        Returns:
+            Combined cost matrix, shape (bs*nq, num_gts).
+        """
+        return (
+            self.cost_gain["class"] * cost_class
+            + self.cost_gain["bbox"] * cost_bbox
+            + self.cost_gain["giou"] * cost_giou
+        )
 
     # This function is for future RT-DETR Segment models
     # def _cost_mask(self, bs, num_gts, masks=None, gt_mask=None):

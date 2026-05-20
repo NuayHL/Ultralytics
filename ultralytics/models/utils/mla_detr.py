@@ -10,10 +10,6 @@ Contains:
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
-from scipy.optimize import linear_sum_assignment
-
-from ultralytics.utils.metrics import bbox_iou
 
 from .ops import HungarianMatcher
 
@@ -100,66 +96,20 @@ class HungarianMatcher_ScaleAware(HungarianMatcher):
         return cls_factor, spatial_factor
 
     # ─────────────────────────────────────────────────────────────────────
-    # Forward with scale-aware cost reweighting
+    # Scale-aware cost matrix (only method that needs to differ from parent)
     # ─────────────────────────────────────────────────────────────────────
 
-    def forward(
-        self,
-        pred_bboxes: torch.Tensor,
-        pred_scores: torch.Tensor,
-        gt_bboxes: torch.Tensor,
-        gt_cls: torch.Tensor,
-        gt_groups: list[int],
-        masks: torch.Tensor | None = None,
-        gt_mask: list[torch.Tensor] | None = None,
-    ) -> list[tuple[torch.Tensor, torch.Tensor]]:
-        bs, nq, nc = pred_scores.shape
+    def _get_cost_matrix(self, cost_class, cost_bbox, cost_giou, gt_bboxes):
+        """
+        Combine costs with per-GT dynamic scale-aware weights.
 
-        if sum(gt_groups) == 0:
-            return [(torch.tensor([], dtype=torch.long), torch.tensor([], dtype=torch.long)) for _ in range(bs)]
-
-        # ── Per-GT dynamic cost_gain modulation ───────────────────────────
+        For small objects the cls cost weight is reduced and the spatial
+        cost weight is increased.  The modulation strength mod ∈ [0,1)
+        controls how far from baseline the per-GT gains deviate.
+        """
         cls_factor, spatial_factor = self._compute_per_gt_scale_factors(gt_bboxes)
-
-        # ── Flatten and compute costs (same as parent) ──────────────────
-        pred_scores = pred_scores.detach().view(-1, nc)
-        pred_scores = F.sigmoid(pred_scores) if self.use_fl else F.softmax(pred_scores, dim=-1)
-        pred_bboxes = pred_bboxes.detach().view(-1, 4)
-
-        # Classification cost
-        pred_scores = pred_scores[:, gt_cls]
-        if self.use_fl:
-            neg_cost_class = (1 - self.alpha) * (pred_scores ** self.gamma) * (-(1 - pred_scores + 1e-8).log())
-            pos_cost_class = self.alpha * ((1 - pred_scores) ** self.gamma) * (-(pred_scores + 1e-8).log())
-            cost_class = pos_cost_class - neg_cost_class
-        else:
-            cost_class = -pred_scores
-
-        # L1 bbox cost
-        cost_bbox = (pred_bboxes.unsqueeze(1) - gt_bboxes.unsqueeze(0)).abs().sum(-1)
-
-        # GIoU cost
-        cost_giou = 1.0 - bbox_iou(
-            pred_bboxes.unsqueeze(1), gt_bboxes.unsqueeze(0), xywh=True, GIoU=True
-        ).squeeze(-1)
-
-        # ── ★ Scale-aware cost combination ──────────────────────────────
-        C = (
+        return (
             self.cost_gain["class"] * cls_factor * cost_class
             + self.cost_gain["bbox"] * spatial_factor * cost_bbox
             + self.cost_gain["giou"] * spatial_factor * cost_giou
         )
-
-        if self.with_mask:
-            C += self._cost_mask(bs, gt_groups, masks, gt_mask)
-
-        C[C.isnan() | C.isinf()] = 0.0
-
-        # ── Hungarian solve (same as parent) ────────────────────────────
-        C = C.view(bs, nq, -1).cpu()
-        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(gt_groups, -1))]
-        gt_groups_cum = torch.as_tensor([0, *gt_groups[:-1]]).cumsum_(0)
-        return [
-            (torch.tensor(i, dtype=torch.long), torch.tensor(j, dtype=torch.long) + gt_groups_cum[k])
-            for k, (i, j) in enumerate(indices)
-        ]

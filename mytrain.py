@@ -502,21 +502,43 @@ if __name__ == "__main__":
         mosaic=1.0,
         mixup=0.0,
         close_mosaic=15,
-        batch=8,
+        batch=4,
         imgsz=640,
         epochs=150,
     )
 
-    EXP_LIST_rtdetr_usaa = [
-        dict(exp_name="rtdetr-resnet50-usaa.yaml",
-             extra_tags=["rtdetr", "usaa"],
-             model_yaml="cfg/rt-detr/rtdetr-resnet50-usaa.yaml",
-             trainer=None, other_train_kwargs=rtdetr_train_kwargs),
-    ]
+    rtdetr_train_kwargs_adamw = dict(epochs=150, 
+                                     imgsz=640, 
+                                     batch=16, 
+                                     optimizer="AdamW",
+                                     lr0=0.0001, 
+                                     lrf=0.01, 
+                                     momentum=0.9, 
+                                     weight_decay=0.001)
+    
+    rtdetr_train_kwargs_adamw_aitod = dict(epochs=150, 
+                                     imgsz=640, 
+                                     batch=8, 
+                                     optimizer="AdamW",
+                                     lr0=0.0001, 
+                                     lrf=0.01, 
+                                     momentum=0.9, 
+                                     weight_decay=0.001)
 
-    do_hituav(EXP_LIST_rtdetr_usaa, model_type='rtdetr')
+    EXP_LIST_rtdetr_usaa = [
+        dict(exp_name="rtdetr-resnet50.yaml",
+             extra_tags=["rtdetr", "baseline", "new_pip"],
+             model_yaml="cfg/rt-detr/rtdetr-resnet50.yaml",
+             trainer=None, other_train_kwargs=rtdetr_train_kwargs_adamw),
+        dict(exp_name="rtdetr-resnet50-usaa.yaml",
+             extra_tags=["rtdetr", "usaa", "new_pip"],
+             model_yaml="cfg/rt-detr/rtdetr-resnet50-usaa.yaml",
+             trainer=None, other_train_kwargs=rtdetr_train_kwargs_adamw),
+    ]
+    
     do_visdrone(EXP_LIST_rtdetr_usaa, model_type='rtdetr')
-    do_aitodv2(EXP_LIST_rtdetr_usaa, model_type='rtdetr')
+    do_hituav(EXP_LIST_rtdetr_usaa, model_type='rtdetr')
+    # do_aitodv2(EXP_LIST_rtdetr_usaa, model_type='rtdetr')
 
     # EXP_LIST = [
     #     dict(exp_name="yolo12s.yaml",
