@@ -58,6 +58,17 @@ IMGSZ = 640
 STRIDES = [8, 16, 32]
 EXPECTED_ANCHOR_SPLITS = [6400, 1600, 400]  # P3, P4, P5
 
+# Level → (index in feats list, grid size, cell size in pixels, stride)
+LEVEL_CONFIG: dict[str, dict] = {
+    "P3": {"idx": 0, "grid": 80, "cell": 8, "stride": 8},
+    "P4": {"idx": 1, "grid": 40, "cell": 16, "stride": 16},
+    "P5": {"idx": 2, "grid": 20, "cell": 32, "stride": 32},
+}
+
+# Default rendering style — adjust these to taste, or override via CLI
+DEFAULT_GRID_STYLE: dict = {"color": "gray", "alpha": 0.15, "linewidth": 0.3}
+DEFAULT_GT_STYLE: dict = {"edgecolor": "white", "linewidth": 1.2, "linestyle": "-"}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Helper: hue → RGBA
 # ──────────────────────────────────────────────────────────────────────────────
@@ -398,36 +409,39 @@ def run_assignment(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# P3 grid extraction
+# Level grid extraction (P3 / P4 / P5)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def extract_p3_grid(
+def extract_level_grid(
     target_scores: torch.Tensor,  # (1, na, nc)
     na_per_level: list[int],
-    p3_idx: int = 0,
-    grid_size: int = 80,
-) -> np.ndarray:
+    level_idx: int,              # 0=P3, 1=P4, 2=P5
+    grid_size: int,              # 80 / 40 / 20
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    Extract P3 soft-label mask.
+    Extract one feature level's soft-label mask.
 
     Returns
     -------
-    cls_map  : (80, 80) int   — argmax class per cell (-1 for bg)
-    val_map  : (80, 80) float — max soft-label value per cell
+    cls_map  : (grid, grid) int   — argmax class per cell (-1 for bg)
+    val_map  : (grid, grid) float — max soft-label value per cell
     """
-    # Verify anchor split
     total = sum(na_per_level)
-    assert na_per_level[p3_idx] == grid_size * grid_size, \
-        f"P3 anchors={na_per_level[p3_idx]}, expected {grid_size*grid_size}"
+    n_level = na_per_level[level_idx]
+    assert n_level == grid_size * grid_size, \
+        f"Level {level_idx}: anchors={n_level}, expected {grid_size*grid_size}"
     assert total == sum(EXPECTED_ANCHOR_SPLITS), \
         f"Total anchors={total}, expected {sum(EXPECTED_ANCHOR_SPLITS)} (splits={na_per_level})"
 
-    p3_scores = target_scores[0, :na_per_level[p3_idx], :]  # (6400, nc)
-    vals, cls_ids = p3_scores.max(dim=-1)  # (6400,)
+    # Offset into the concatenated anchor list
+    start_idx = sum(na_per_level[:level_idx])
+    end_idx = start_idx + n_level
+
+    level_scores = target_scores[0, start_idx:end_idx, :]  # (n_level, nc)
+    vals, cls_ids = level_scores.max(dim=-1)  # (n_level,)
     vals = vals.cpu().numpy().reshape(grid_size, grid_size)
     cls_ids = cls_ids.cpu().numpy().reshape(grid_size, grid_size)
 
-    # Mask background (score == 0)
     cls_map = np.where(vals > 0, cls_ids.astype(int), -1)
     val_map = vals
 
@@ -441,22 +455,32 @@ def extract_p3_grid(
 def render_overlay_panel(
     ax: plt.Axes,
     img_640: np.ndarray,           # (640, 640, 3) uint8 BGR
-    cls_map: np.ndarray,            # (80, 80) int, -1 = bg
-    val_map: np.ndarray,            # (80, 80) float in [0, 1]
+    cls_map: np.ndarray,            # (grid, grid) int, -1 = bg
+    val_map: np.ndarray,            # (grid, grid) float in [0, 1]
     gt_boxes_lb: list[dict],       # GT boxes in letterbox (640) coords
     class_hues: dict,              # cls_id → hue angle (0–360)
     crop_region: tuple,            # (x0, y0, x1, y1) in letterbox coords
     title: str = "",
     draw_grid: bool = True,
     draw_gt: bool = True,
-    cell_size: int = 8,
-) -> np.ndarray:
+    grid_size: int = 80,           # cells per dimension (80/40/20 for P3/P4/P5)
+    cell_size: int = 8,            # pixel size of one cell (8/16/32)
+    grid_style: dict | None = None,
+    gt_style: dict | None = None,
+):
     """
     Draw one panel: image + assignment overlay + GT boxes + grid.
     Renders at 640×640 then crops.
 
-    Returns the rendered image array (cropped).
+    Style dicts accept matplotlib Rectangle / axhline keywords, e.g.:
+      grid_style = {"color": "gray", "alpha": 0.15, "linewidth": 0.3}
+      gt_style   = {"edgecolor": "white", "linewidth": 1.2, "linestyle": "-"}
     """
+    if grid_style is None:
+        grid_style = DEFAULT_GRID_STYLE
+    if gt_style is None:
+        gt_style = DEFAULT_GT_STYLE
+
     x0, y0, x1, y1 = crop_region
 
     # Convert BGR to RGB for matplotlib
@@ -468,8 +492,8 @@ def render_overlay_panel(
     # ── Overlay assignment mask ───────────────────────────────────────────
     # Create an RGBA overlay of same size as image
     overlay_rgba = np.zeros((640, 640, 4), dtype=np.float32)
-    for gy in range(80):
-        for gx in range(80):
+    for gy in range(grid_size):
+        for gx in range(grid_size):
             c = cls_map[gy, gx]
             v = float(val_map[gy, gx])
             if c < 0 or v <= 0:
@@ -485,21 +509,20 @@ def render_overlay_panel(
 
     ax.imshow(overlay_rgba, extent=(0, 640, 640, 0), interpolation="nearest")
 
-    # ── Draw P3 grid lines (light grey) ───────────────────────────────────
+    # ── Draw grid lines ────────────────────────────────────────────────────
     if draw_grid:
         for i in range(0, 640 + 1, cell_size):
-            ax.axhline(i, color="gray", alpha=0.15, linewidth=0.3, linestyle="-")
-            ax.axvline(i, color="gray", alpha=0.15, linewidth=0.3, linestyle="-")
+            ax.axhline(i, **grid_style)
+            ax.axvline(i, **grid_style)
 
-    # ── Draw GT boxes (solid outline) ─────────────────────────────────────
+    # ── Draw GT boxes ──────────────────────────────────────────────────────
     if draw_gt:
         for gt in gt_boxes_lb:
             w = gt["x2"] - gt["x1"]
             h = gt["y2"] - gt["y1"]
             rect = plt.Rectangle(
                 (gt["x1"], gt["y1"]), w, h,
-                fill=False, edgecolor="white", linewidth=1.2,
-                linestyle="-",
+                fill=False, **gt_style,
             )
             ax.add_patch(rect)
 
@@ -513,24 +536,37 @@ def render_overlay_panel(
 def render_legend(
     ax: plt.Axes,
     class_hues: dict,
+    active_classes: set | None = None,
     class_names: dict | None = None,
 ):
     """
     Draw a class → colour legend in the given axis.
-    class_names: cls_id_str → name string (optional, fallback to "cls_{id}").
+
+    If ``active_classes`` is provided, only those class ids are shown
+    (e.g. the classes actually present in the image GT).
+    ``class_names``: cls_id → name string (optional, fallback to "cls_{id}").
     """
     ax.axis("off")
     ax.set_title("Class Legend", fontsize=8, fontweight="bold")
 
     items = sorted(class_hues.items(), key=lambda x: int(x[0]))
+    if active_classes is not None:
+        items = [(k, v) for k, v in items if int(k) in active_classes]
+
     n = len(items)
+    if n == 0:
+        ax.text(0.5, 0.5, "(no GT)", transform=ax.transAxes,
+                fontsize=7, ha="center", va="center")
+        return
+
     for i, (cls_str, hue) in enumerate(items):
         y = 1.0 - (i + 1) / (n + 1)
         rgba = hsv_to_rgba(hue, s=0.85, v=0.95)
         ax.add_patch(plt.Rectangle((0.05, y - 0.02), 0.1, 0.04,
                                      facecolor=rgba, edgecolor="gray", linewidth=0.5,
                                      transform=ax.transAxes))
-        name = class_names.get(int(cls_str), f"cls_{cls_str}") if class_names else f"cls_{cls_str}"
+        cls_id = int(cls_str)
+        name = class_names.get(cls_id, f"cls_{cls_id}") if class_names else f"cls_{cls_id}"
         ax.text(0.18, y, name, transform=ax.transAxes, fontsize=6, verticalalignment="center")
 
 
@@ -582,8 +618,25 @@ def main():
     parser.add_argument("--ours_assigner_kwargs", type=str, default="{}",
                         help="JSON string of extra kwargs for ours assigner")
     # Rendering
+    parser.add_argument("--level", type=str, default="P3", choices=["P3", "P4", "P5"],
+                        help="Feature level to visualize (default: P3)")
     parser.add_argument("--class_colors", type=str, default=None,
                         help="JSON string: cls_id → hue angle, e.g. '{\"0\":0,\"1\":60}'")
+    # Grid line style
+    parser.add_argument("--grid_color", type=str, default=DEFAULT_GRID_STYLE["color"],
+                        help=f"Grid line color (default: {DEFAULT_GRID_STYLE['color']})")
+    parser.add_argument("--grid_alpha", type=float, default=DEFAULT_GRID_STYLE["alpha"],
+                        help=f"Grid line alpha (default: {DEFAULT_GRID_STYLE['alpha']})")
+    parser.add_argument("--grid_lw", type=float, default=DEFAULT_GRID_STYLE["linewidth"],
+                        help=f"Grid line width (default: {DEFAULT_GRID_STYLE['linewidth']})")
+    # GT box style
+    parser.add_argument("--gt_color", type=str, default=DEFAULT_GT_STYLE["edgecolor"],
+                        help=f"GT box edge color (default: {DEFAULT_GT_STYLE['edgecolor']})")
+    parser.add_argument("--gt_lw", type=float, default=DEFAULT_GT_STYLE["linewidth"],
+                        help=f"GT box line width (default: {DEFAULT_GT_STYLE['linewidth']})")
+    parser.add_argument("--gt_ls", type=str, default=DEFAULT_GT_STYLE["linestyle"],
+                        help=f"GT box linestyle (default: {DEFAULT_GT_STYLE['linestyle']})")
+    # Output
     parser.add_argument("--out", type=str, default="assign_overlay.pdf",
                         help="Output path (PDF recommended)")
     parser.add_argument("--device", type=str, default="cuda",
@@ -594,6 +647,18 @@ def main():
 
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Using device: {device}")
+
+    # ── Level config ─────────────────────────────────────────────────────────
+    lvl = LEVEL_CONFIG[args.level]
+    level_idx = lvl["idx"]
+    grid_size = lvl["grid"]
+    cell_size = lvl["cell"]
+    print(f"[INFO] Feature level: {args.level}  (grid={grid_size}×{grid_size}, cell={cell_size}px)")
+
+    # ── Style config ─────────────────────────────────────────────────────────
+    grid_style = {"color": args.grid_color, "alpha": args.grid_alpha, "linewidth": args.grid_lw}
+    # grid_style = {"color": "#1B1C3F", "alpha": args.grid_alpha, "linewidth": args.grid_lw}
+    gt_style = {"edgecolor": args.gt_color, "linewidth": args.gt_lw, "linestyle": args.gt_ls}
 
     # ── Parse class colours ───────────────────────────────────────────────
     if args.class_colors:
@@ -632,6 +697,10 @@ def main():
             "y2": gt["y2"] * scale_r + pad_t,
         }
         gt_boxes_lb.append(gt_lb)
+
+    # ── Active classes (only those present in the GT of this image) ──────────
+    active_classes = {gt["cls"] for gt in gt_boxes_lb}
+    print(f"[INFO] Active classes in this image: {sorted(active_classes)}")
 
     # ── Validate crop region ──────────────────────────────────────────────
     x0, y0, x1, y1 = args.crop
@@ -715,29 +784,35 @@ def main():
         sys.exit(1)
     print(f"[SANITY] Anchor split check PASSED.")
 
-    # ── Extract P3 grids ──────────────────────────────────────────────────
-    cls_map_base, val_map_base = extract_p3_grid(
-        result_base["target_scores"], result_base["na_per_level"], p3_idx=0, grid_size=80
+    # ── Extract level grids ─────────────────────────────────────────────────
+    cls_map_base, val_map_base = extract_level_grid(
+        result_base["target_scores"], result_base["na_per_level"], level_idx, grid_size,
     )
-    cls_map_ours, val_map_ours = extract_p3_grid(
-        result_ours["target_scores"], result_ours["na_per_level"], p3_idx=0, grid_size=80
+    cls_map_ours, val_map_ours = extract_level_grid(
+        result_ours["target_scores"], result_ours["na_per_level"], level_idx, grid_size,
     )
 
     # ── SANITY CHECK: per-GT stats ────────────────────────────────────────
     print(f"\n{'='*60}")
-    print(f"[SANITY] Per-GT soft-label peak and positive cell counts:")
+    print(f"[SANITY] Per-GT soft-label peak and positive cell counts")
+    print(f"         (showing ALL anchors, not just {args.level}):")
     fg_base = result_base["fg_mask"][0]  # (na,)
     fg_ours = result_ours["fg_mask"][0]
-    p3_base = na_base[0]
-    p3_ours = na_ours[0]
 
-    # Per-GT best positive soft-label peak
+    # Per-GT best positive soft-label peak (over ALL anchors, all levels)
     ts_base = result_base["target_scores"][0]  # (na, nc)
     ts_ours = result_ours["target_scores"][0]
 
+    # Also compute per-level fg counts
+    na_splits_base = result_base["na_per_level"]
+    na_splits_ours = result_ours["na_per_level"]
+    start = sum(na_splits_base[:level_idx])
+    n_level_anchors = na_splits_base[level_idx]
+    fg_level_base = fg_base[start:start + n_level_anchors].sum().item()
+    fg_level_ours = fg_ours[start:start + n_level_anchors].sum().item()
+
     for i, gt in enumerate(gt_boxes_lb):
-        # Find which anchors are assigned to this GT via target_gt_idx
-        gt_idx_base = result_base["target_gt_idx"][0]  # (na,)
+        gt_idx_base = result_base["target_gt_idx"][0]
         gt_idx_ours = result_ours["target_gt_idx"][0]
 
         fg_for_gt_base = (gt_idx_base == i) & fg_base
@@ -746,14 +821,8 @@ def main():
         n_pos_base = fg_for_gt_base.sum().item()
         n_pos_ours = fg_for_gt_ours.sum().item()
 
-        if n_pos_base > 0:
-            peak_base = ts_base[fg_for_gt_base].max().item()
-        else:
-            peak_base = 0.0
-        if n_pos_ours > 0:
-            peak_ours = ts_ours[fg_for_gt_ours].max().item()
-        else:
-            peak_ours = 0.0
+        peak_base = ts_base[fg_for_gt_base].max().item() if n_pos_base > 0 else 0.0
+        peak_ours = ts_ours[fg_for_gt_ours].max().item() if n_pos_ours > 0 else 0.0
 
         gt_w = gt["x2"] - gt["x1"]
         gt_h = gt["y2"] - gt["y1"]
@@ -762,11 +831,10 @@ def main():
               f"baseline peak={peak_base:.4f} n_pos={n_pos_base}, "
               f"ours peak={peak_ours:.4f} n_pos={n_pos_ours}")
 
-    print(f"\n  Total P3 foreground cells: baseline={fg_base[:p3_base].sum().item()}, ours={fg_ours[:p3_ours].sum().item()}")
+    print(f"\n  Total foreground cells ({args.level}): baseline={fg_level_base}, ours={fg_level_ours}")
+    print(f"  Total foreground cells (all levels):  baseline={fg_base.sum().item()}, ours={fg_ours.sum().item()}")
 
     # ── SANITY: alpha mapping function ────────────────────────────────────
-    # Verify that both overlays use the same alpha mapping (val → alpha).
-    # We're using a simple linear clamp [0,1], so this should be trivially true.
     print(f"\n[SANITY] Alpha mapping: both baseline and ours use identical linear clamp [0,1] (no floor).")
     print(f"{'='*60}\n")
 
@@ -781,6 +849,8 @@ def main():
         ax_img, img_lb, cls_map_base, np.zeros_like(val_map_base),
         gt_boxes_lb, class_hues, crop_region,
         title="Image (crop)", draw_grid=False, draw_gt=True,
+        grid_size=grid_size, cell_size=cell_size,
+        grid_style=grid_style, gt_style=gt_style,
     )
 
     # Panel 2: Baseline overlay
@@ -788,7 +858,9 @@ def main():
     render_overlay_panel(
         ax_base, img_lb, cls_map_base, val_map_base,
         gt_boxes_lb, class_hues, crop_region,
-        title="Baseline (Stock TAL)", draw_grid=True, draw_gt=True,
+        title=f"Baseline (Stock TAL) [{args.level}]", draw_grid=True, draw_gt=True,
+        grid_size=grid_size, cell_size=cell_size,
+        grid_style=grid_style, gt_style=gt_style,
     )
 
     # Panel 3: Ours overlay
@@ -796,20 +868,23 @@ def main():
     render_overlay_panel(
         ax_ours, img_lb, cls_map_ours, val_map_ours,
         gt_boxes_lb, class_hues, crop_region,
-        title="Ours (Calibration)", draw_grid=True, draw_gt=True,
+        title=f"Ours (Calibration) [{args.level}]", draw_grid=True, draw_gt=True,
+        grid_size=grid_size, cell_size=cell_size,
+        grid_style=grid_style, gt_style=gt_style,
     )
 
-    # Legend
+    # Legend (only classes present in this image)
     ax_legend = fig.add_subplot(gs[3])
-    render_legend(ax_legend, class_hues)
+    render_legend(ax_legend, class_hues, active_classes=active_classes)
 
     # Colorbar for soft-label value reference
     render_colorbar(fig)
 
     # Save
     out_path = args.out
-    if not os.path.exists(Path(out_path).parent):
-        os.makedirs(Path(out_path).parent, exist_ok=True)
+    out_dir = os.path.dirname(out_path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     fig.savefig(out_path, dpi=args.dpi, bbox_inches="tight", pad_inches=0.1)
     print(f"[INFO] Saved to: {out_path}")
     plt.close(fig)

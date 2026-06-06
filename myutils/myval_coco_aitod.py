@@ -186,6 +186,122 @@ def plot_ap_per_area(stats, custom_area_rng, save_path=None):
         print(f'Plot saved to {save_path}')
     plt.show()
 
+def print_area_distribution(anno_json, area_rng, area_lbl):
+    """
+    Count how many GT annotations fall into each area range.
+    area_rng: list of [min_area, max_area] (first entry is 'all')
+    area_lbl: list of label names matching area_rng
+    """
+    with open(anno_json) as f:
+        data = json.load(f)
+    anns = data['annotations']
+    total = len(anns)
+    areas = [ann['area'] for ann in anns]
+
+    print('\n' + '=' * 70)
+    print('GT Annotation Area Distribution:')
+    print('=' * 70)
+    print(f'  Total annotations: {total}')
+    print(f'  {"Area Range":<24s} {"Count":>8s}  {"Ratio":>8s}')
+    print(f'  {"-"*24} {"-"*8}  {"-"*8}')
+
+    for (lo, hi), lbl in zip(area_rng, area_lbl):
+        # area_rng uses squared values
+        n = sum(1 for a in areas if lo <= a < hi)
+        ratio = n / total * 100 if total > 0 else 0
+        range_str = f'[{lo:.0f}, {hi:.0f})' if hi < 1e8 else f'[{lo:.0f}, inf)'
+        print(f'  {lbl:<12s} {range_str:<12s} {n:>8d}  {ratio:>7.2f}%')
+
+
+def print_latex_table(all_stats, exp_names, area_labels):
+    """
+    Print a LaTeX-style table where each row is an experiment, columns are metrics.
+    Values are displayed as percentages.
+
+    Stats layout (matching _summarizeDets with _n area labels beyond 'all'):
+      0:  AP@0.50:0.95  all      maxDets[-1]
+      1:  AP@0.25       all      maxDets[-1]
+      2:  AP@0.50       all      maxDets[-1]
+      3:  AP@0.75       all      maxDets[-1]
+      4..3+_n: AP per area       maxDets[-1]
+      4+_n:    AR@maxDets[0]     all
+      5+_n:    AR@maxDets[1]     all
+      6+_n:    AR@maxDets[2]     all
+      7+_n..:  AR per area       maxDets[-1]
+    """
+    extra_labels = area_labels[1:]  # skip 'all'
+
+    # Build metric header labels
+    metric_names = [
+        'AP',                    # 0: AP@0.50:0.95 all
+        'AP@0.25',               # 1
+        'AP@0.50',               # 2
+        'AP@0.75',               # 3
+    ]
+    for lbl in extra_labels:
+        metric_names.append(f'AP ({lbl})')       # 4..3+_n
+    metric_names.append('AR@1')                   # 4+_n
+    metric_names.append('AR@100')                 # 5+_n
+    metric_names.append('AR@1500')                # 6+_n
+    for lbl in extra_labels:
+        metric_names.append(f'AR ({lbl})')         # 7+_n..
+
+    # ── LaTeX table ──
+    ncols = len(metric_names)
+    col_fmt = 'l' + 'c' * ncols
+
+    print('\n' + '=' * 80)
+    print('LaTeX table (percentages):')
+    print('=' * 80)
+    print('\\begin{table}[htbp]')
+    print('  \\centering')
+    print(f'  \\caption{{Comparison of experiments}}')
+    print(f'  \\label{{tab:exp_comparison}}')
+    print(f'  \\begin{{tabular}}{{{col_fmt}}}')
+    print('    \\toprule')
+
+    # Header row
+    header = '    Experiment & ' + ' & '.join(metric_names) + ' \\\\'
+    print(header)
+    print('    \\midrule')
+
+    # Data rows (one per experiment)
+    for name, stats in zip(exp_names, all_stats):
+        vals = [f'{s * 100:.1f}' if s >= 0 else 'N/A' for s in stats]
+        row = f'    {name} & ' + ' & '.join(vals) + ' \\\\'
+        print(row)
+
+    print('    \\bottomrule')
+    print('  \\end{tabular}')
+    print('\\end{table}')
+
+    # ── Plain text table (fixed-width aligned for terminal comparison) ──
+    print('\n' + '=' * 120)
+    print('Plain text table (percentages, aligned):')
+    print('=' * 120)
+
+    # Build all rows as string lists
+    header = ['Experiment'] + metric_names
+    rows = [header]
+    for name, stats in zip(exp_names, all_stats):
+        vals = [name] + [f'{s * 100:.1f}' if s >= 0 else 'N/A' for s in stats]
+        rows.append(vals)
+
+    # Compute max width per column
+    col_widths = [max(len(r[i]) for r in rows) for i in range(len(header))]
+
+    # Print header
+    header_str = ' | '.join(h.ljust(col_widths[i]) for i, h in enumerate(header))
+    print(header_str)
+    # Separator line
+    sep = '-+-'.join('-' * col_widths[i] for i in range(len(header)))
+    print(sep)
+    # Print data rows
+    for row in rows[1:]:
+        row_str = ' | '.join(v.ljust(col_widths[i]) for i, v in enumerate(row))
+        print(row_str)
+
+
 if __name__ == "__main__":
     # AITODv2 area ranges (matching official AITOD cocoapi):
     #   verytiny: area < 8*8   = [0, 64]
@@ -201,10 +317,15 @@ if __name__ == "__main__":
     ]
     custom_area_lbl = ['all', 'verytiny', 'tiny', 'small', 'medium']
 
-    exps = ['yolo12m.yaml', 'yolo12m_usaa_raw_dyabcalra64_ra32_rtadd_s10.yaml', 'yolo12l_usaa_raw_dyabcalra64_ra32_rtadd_s10.yaml']
 
+
+    # exps = ['yolov5s.yaml', 'yolov5s_usaa_raw_dyabcalra64_ra32_rtadd_s10.yaml',
+    #         'yolov8s.yaml', 'yolov8s_usaa_raw_dyabcalra64_ra32_rtadd_s10.yaml']
+    exps = os.listdir('aaa_main_exp')
+
+    all_stats = []
     for exp in exps:
-        model_path = f'runs/detect/aitodv2/{exp}/weights/best.pt'
+        model_path = f'aaa_main_exp/{exp}/weights/best.pt'
 
         stats = format_metrics(
             model_path=model_path,
@@ -216,5 +337,11 @@ if __name__ == "__main__":
             imgsz=640,
             max_dets=[1, 100, 1500],  # matches official AITOD cocoapi
         )['COCO_stats']
+        all_stats.append(stats)
         save_path = f'ap_per_area_{exp}.png'
         plot_ap_per_area(stats, custom_area_rng, save_path=str(save_path))
+
+    # Print GT area distribution first (no model needed)
+    print_area_distribution('myutils/aitodv2_coco_val.json', custom_area_rng, custom_area_lbl)
+
+    print_latex_table(all_stats, exps, custom_area_lbl)

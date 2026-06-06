@@ -763,10 +763,12 @@ class RTDETRDetectionModel(DetectionModel):
         from ultralytics.models.utils.loss import RTDETRDetectionLoss, RTDETRDetectionLoss_USAA
 
         loss_type = self.yaml.get("loss_type", "default")
+        use_uni_match = self.yaml.get("use_uni_match", False)
         if loss_type == "usaa":
             return RTDETRDetectionLoss_USAA(
                 nc=self.nc,
                 use_vfl=True,
+                use_uni_match=use_uni_match,  # 所有辅助层共用匹配结果，减少 Hungarian 调用
                 # ── Scale-aware cost reweighting (HungarianMatcher) ──
                 r_ref_ab=self.yaml.get("r_ref_ab", 64.0),
                 cls_reduction=self.yaml.get("cls_reduction", 0.5),
@@ -776,7 +778,7 @@ class RTDETRDetectionModel(DetectionModel):
                 r_ref_cal=self.yaml.get("r_ref_cal", 32.0),
                 cal_type=self.yaml.get("cal_type", "add_1"),
             )
-        return RTDETRDetectionLoss(nc=self.nc, use_vfl=True)
+        return RTDETRDetectionLoss(nc=self.nc, use_vfl=True, use_uni_match=use_uni_match)
 
     def loss(self, batch, preds=None):
         """
