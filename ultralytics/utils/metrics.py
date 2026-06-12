@@ -324,6 +324,45 @@ def bbox_iou_ext(
         # but the snippet provided used 1.
         return torch.exp(-(sim_loc + sim_shape))
 
+    if iou_type == "KLD":
+        # RFLA KL-divergence affinity between two 2D Gaussians (axis-aligned).
+        # box1 is the REFERENCE distribution — pass the GT box as box1 to match
+        # RFLA (iou_calculator(gt, anchor)). Affinity = 1 / (1 + KL).
+        cx1 = (b1_x1 + b1_x2) / 2
+        cy1 = (b1_y1 + b1_y2) / 2
+        cx2 = (b2_x1 + b2_x2) / 2
+        cy2 = (b2_y1 + b2_y2) / 2
+        dx = cx1 - cx2
+        dy = cy1 - cy2
+        w1c, h1c = w1.clamp(min=eps), h1.clamp(min=eps)
+        w2c, h2c = w2.clamp(min=eps), h2.clamp(min=eps)
+        kl = (w2c.pow(2) / w1c.pow(2) + h2c.pow(2) / h1c.pow(2)
+              + 4 * dx.pow(2) / w1c.pow(2) + 4 * dy.pow(2) / h1c.pow(2)
+              + torch.log(w1c.pow(2) / w2c.pow(2))
+              + torch.log(h1c.pow(2) / h2c.pow(2)) - 2) / 2
+        return 1.0 / (1.0 + kl)
+
+    if iou_type == "WD":
+        # RFLA Wasserstein affinity between two 2D Gaussians: 1 / (1 + W^2).
+        cx1 = (b1_x1 + b1_x2) / 2
+        cy1 = (b1_y1 + b1_y2) / 2
+        cx2 = (b2_x1 + b2_x2) / 2
+        cy2 = (b2_y1 + b2_y2) / 2
+        center_dist = (cx1 - cx2).pow(2) + (cy1 - cy2).pow(2)
+        wh_dist = ((w1 - w2).pow(2) + (h1 - h2).pow(2)) / 4
+        return 1.0 / (1.0 + center_dist + wh_dist)
+
+    if iou_type == "DotD":
+        # AI-TOD Dot Distance: normalized center-point distance.
+        # dotd = exp(-||c1 - c2|| / C).
+        C = iou_kargs.get("dotd_c", 12.0)
+        cx1 = (b1_x1 + b1_x2) / 2
+        cy1 = (b1_y1 + b1_y2) / 2
+        cx2 = (b2_x1 + b2_x2) / 2
+        cy2 = (b2_y1 + b2_y2) / 2
+        center_dist = (cx1 - cx2).pow(2) + (cy1 - cy2).pow(2)
+        return torch.exp(-torch.sqrt(center_dist + eps) / C)
+
     # Intersection area
     inter = (b1_x2.minimum(b2_x2) - b1_x1.maximum(b2_x1)).clamp_(0) * (
         b1_y2.minimum(b2_y2) - b1_y1.maximum(b2_y1)

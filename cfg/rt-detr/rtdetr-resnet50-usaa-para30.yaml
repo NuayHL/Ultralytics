@@ -4,10 +4,25 @@
 # Model docs: https://docs.ultralytics.com/models/rtdetr
 # Task docs: https://docs.ultralytics.com/tasks/detect
 
-use_uni_match: True
-
 # Parameters
 nc: 80 # number of classes
+
+use_uni_match: True
+
+# ── USAA loss configuration ─────────────────────────────────────────────────
+loss_type: usaa
+
+# Scale-aware cost reweighting (HungarianMatcher)
+r_ref_ab: 64.0              # reference size (px) for cost_gain modulation
+cls_reduction: 0.35           # max reduction of class cost_gain for small objects
+spatial_boost: 0.35          # max boost of spatial cost_gain for small objects
+
+# Soft-label calibration
+use_soft_label_cal: true    # apply f(u,ρ) = u + (1-ρ)·u·(1-u) to IoU targets
+r_ref_cal: 32.0             # reference size (px) for soft-label calibration
+cal_type: add_1             # "add_1" = Bernoulli-variance, "pow" = pow
+# ─────────────────────────────────────────────────────────────────────────────
+
 scales: # model compound scaling constants, i.e. 'model=yolov8n-cls.yaml' will call yolov8-cls.yaml with scale 'n'
   # [depth, width, max_channels]
   l: [1.00, 1.00, 1024]

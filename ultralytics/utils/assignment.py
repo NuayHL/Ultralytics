@@ -34,6 +34,7 @@ from ultralytics.utils.mla_sub import (TaskAlignedAssigner_Subnet_Scale,
 from ultralytics.utils.mla_usaa import (TaskAlignedAssigner_dyab_dmetric_dscale,
                                         TaskAlignedAssigner_dyab_dmetric_dscale_RefineArea)
 
+from ultralytics.utils.mla_priorla import TaskAlignedAssigner_PriorLA
 from ultralytics.utils.mla_scale import TaskAlignedAssigner_dScale
 from ultralytics.utils.tal import TaskAlignedAssigner
 from ultralytics.utils.mla_basic import FCOSAssigner, SimOTAAssigner
@@ -300,6 +301,18 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
             _kwargs['r_ref_type']          = cfg.get('r_ref_type',          'pow')
             _kwargs['r_ref_use_adaptive']  = cfg.get('r_ref_use_adaptive',  False)
             assigner = TaskAlignedAssigner_dyab_dmetric_dscale_RefineArea(**_kwargs)
+
+        # Prior-work tiny-object label assigners ported to one-stage
+        # (NWD-RKA / RFLA-KLD / RFLA-WD / DotD / SimD), decoupled into the
+        # combination / selection / label axes.
+        elif assigner_type == "TaskAlignedAssigner_PriorLA":
+            _kwargs['metric_type']   = cfg.get("metric_type",   "NWD")
+            _kwargs['metric_kwargs'] = cfg.get("metric_kwargs", {})
+            _kwargs['align_type']    = cfg.get("align_type",    "metric")
+            _kwargs['select_type']   = cfg.get("select_type",   "topk")
+            _kwargs['label_type']    = cfg.get("label_type",    "hard")
+            _kwargs['neg_thr']       = cfg.get("neg_thr",       None)
+            assigner = TaskAlignedAssigner_PriorLA(**_kwargs)
 
         # Record assigner
         elif assigner_type == "TaskAlignedAssigner_Record":
