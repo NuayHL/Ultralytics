@@ -33,6 +33,8 @@ def get_detection_loss(cfg):
         return v8DetectionLoss_subnet_mk1
     elif loss_name == 'subnet_mk2':
         return v8DetectionLoss_subnet_mk2
+    elif loss_name == 'mccl':
+        return v8DetectionLoss_mccl
     elif loss_name == 'usaa':
         from .loss_usaa import DetectionLoss_USAA
         return DetectionLoss_USAA
@@ -501,6 +503,139 @@ class v8DetectionLoss:
         loss[2] *= self.hyp.dfl  # dfl gain
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+
+
+class v8DetectionLoss_mccl(v8DetectionLoss):
+    """v8 detection loss with a train-time MCCL calibration auxiliary loss.
+
+    Port of "Multiclass Confidence and Localization Calibration for Object Detection" (CVPR 2023),
+    adapted from FCOS to YOLO. Two differentiable, minibatch-level calibration terms over the
+    assigned positives, added on top of the standard box/cls/dfl losses (inference is unchanged):
+
+      - LC (localization calibration): aligns a per-box localization certainty with the actual IoU.
+        The MCCL MC-dropout regression variance is replaced by the YOLO-native DFL distribution
+        variance Var(X)=E[X^2]-E[X]^2 (no extra forward passes, no head change).
+      - CC (confidence calibration): matches the minibatch-mean predicted class confidence to the
+        empirical class frequency over positives. Uses YOLO's sigmoid (multi-label) outputs.
+
+    The aux loss equals ``mccl_weight * (loss_cc + mccl_iou_weight * loss_lc)`` and is folded into
+    the cls slot of the returned 3-vector, so no trainer / loss_names plumbing changes are needed.
+
+    Config keys (read from the model YAML):
+        mccl_weight (float): overall weight of the MCCL aux loss. Default 1.0.
+        mccl_iou_weight (float): weight of the LC term relative to the CC term. Default 0.1.
+    """
+
+    def __init__(self, model, cfg: dict, tal_topk: int = 10):  # model must be de-paralleled
+        super().__init__(model, cfg, tal_topk)
+        self.mccl_weight = cfg.get("mccl_weight", 1.0)
+        self.mccl_iou_weight = cfg.get("mccl_iou_weight", 0.1)
+        LOGGER.info(
+            f'{colorstr("MCCL aux loss")}: mccl_weight={self.mccl_weight}, mccl_iou_weight={self.mccl_iou_weight}'
+        )
+
+    def _mccl_loss(self, pred_distri, pred_scores, pred_bboxes, target_bboxes, target_scores, fg_mask):
+        """Compute the MCCL calibration auxiliary loss over the assigned positives.
+
+        Args:
+            pred_distri (torch.Tensor): predicted DFL logits, shape (b, a, 4 * reg_max).
+            pred_scores (torch.Tensor): class logits, shape (b, a, nc).
+            pred_bboxes (torch.Tensor): decoded xyxy boxes, shape (b, a, 4), anchor-point units.
+            target_bboxes (torch.Tensor): target xyxy boxes in the same units as ``pred_bboxes``.
+            target_scores (torch.Tensor): soft one-hot targets from the assigner, shape (b, a, nc).
+            fg_mask (torch.Tensor): positive mask, shape (b, a).
+
+        Returns:
+            (torch.Tensor): scalar MCCL auxiliary loss (already including ``mccl_iou_weight``).
+        """
+        fg = fg_mask.bool()
+        if fg.sum() == 0 or not self.use_dfl:
+            return pred_scores.sum() * 0.0
+
+        # ---- LC term: localization calibration from the DFL distribution variance ----
+        dfl = pred_distri[fg].view(-1, 4, self.reg_max).softmax(-1)  # [Npos, 4, reg_max]
+        proj = self.proj.to(dfl.dtype)
+        mu = (dfl * proj).sum(-1)  # E[X] per side, [Npos, 4]
+        var = (dfl * proj.pow(2)).sum(-1) - mu.pow(2)  # Var(X) per side, [Npos, 4]
+        joint_var = var + (mu - mu.mean(-1, keepdim=True)).pow(2)  # epistemic + cross-side spread
+        joint_certainty = 1.0 - torch.tanh(joint_var.mean(-1))  # [Npos]
+
+        iou = bbox_iou(pred_bboxes[fg], target_bboxes[fg], xywh=False).squeeze(-1).clamp_(0).detach()
+        loss_lc = (iou - joint_certainty).abs().mean()
+
+        # ---- CC term: confidence calibration via sigmoid frequency matching ----
+        conf = pred_scores.sigmoid()[fg]  # [Npos, nc]
+        onehot = (target_scores[fg] > 0).to(conf.dtype)  # one class per positive anchor
+        loss_cc = (conf.mean(0) - onehot.mean(0)).abs().mean()
+
+        return loss_cc + self.mccl_iou_weight * loss_lc
+
+    def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Calculate box/cls/dfl losses plus the MCCL calibration auxiliary loss."""
+        loss = torch.zeros(3, device=self.device)  # box, cls, dfl
+        feats = preds[1] if isinstance(preds, tuple) else preds
+        pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
+            (self.reg_max * 4, self.nc), 1
+        )
+
+        pred_scores = pred_scores.permute(0, 2, 1).contiguous()
+        pred_distri = pred_distri.permute(0, 2, 1).contiguous()
+
+        dtype = pred_scores.dtype
+        batch_size = pred_scores.shape[0]
+        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]  # image size (h,w)
+        feature_map_size = [[int(imgsz[0].item() / stride), int(imgsz[1].item() / stride)] for stride in self.stride]
+        anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
+
+        # Targets
+        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+        gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
+        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+
+        # Pboxes
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
+
+        _stride = 1.0
+        if self.assigner_use_stride_input:
+            _bs = pred_scores.shape[0]
+            _n_max_boxes = gt_bboxes.shape[1]
+            _dtype = gt_bboxes.dtype
+            _stride = (stride_tensor.clone().squeeze().unsqueeze(0).unsqueeze(0).repeat(_bs, _n_max_boxes, 1).
+                       to(_dtype).to(gt_bboxes.device))
+
+        _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
+            pred_scores.detach().sigmoid() if self.assigner_sigmoid_input else pred_scores.detach(),
+            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+            anchor_points * stride_tensor,
+            gt_labels,
+            gt_bboxes,
+            mask_gt,
+            stride=-_stride if self.assigner_use_stride_input else None,
+            feature_map_size=feature_map_size,
+        )
+
+        target_scores_sum = max(target_scores.sum(), 1)
+
+        # Cls loss
+        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+
+        # Bbox loss + MCCL auxiliary loss
+        mccl = pred_scores.sum() * 0.0
+        if fg_mask.sum():
+            target_bboxes /= stride_tensor
+            loss[0], loss[2] = self.bbox_loss(
+                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
+            )
+            mccl = self._mccl_loss(pred_distri, pred_scores, pred_bboxes, target_bboxes, target_scores, fg_mask)
+
+        loss[0] *= self.hyp.box  # box gain
+        loss[1] *= self.hyp.cls  # cls gain
+        loss[2] *= self.hyp.dfl  # dfl gain
+        loss[1] += self.mccl_weight * mccl  # MCCL aux folded into the cls slot
+
+        return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+
 
 class v8DetectionLoss_subnet_mk1(v8DetectionLoss):
     def __init__(self, model, cfg: dict, tal_topk: int = 10):  # model must be de-paralleled

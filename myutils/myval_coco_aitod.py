@@ -107,6 +107,10 @@ def format_metrics(model_path, data_path, area_rng, area_lbl,
                    anno_json='aitodv2_coco.json', batch=8, imgsz=640, max_dets=None):
     name = '_tmp_val'
     tmp_dir = Path(f'runs/detect/{name}')
+    if tmp_dir.exists():
+        for file in os.listdir(tmp_dir):
+            os.remove(tmp_dir / file)
+        tmp_dir.rmdir()
     pred_json = tmp_dir / 'predictions.json'
     model = YOLO(model_path)
     metrics = model.val(data=data_path, name=name, batch=batch, imgsz=imgsz, save_json=True, conf=0.001)
@@ -318,15 +322,31 @@ if __name__ == "__main__":
     custom_area_lbl = ['all', 'verytiny', 'tiny', 'small', 'medium']
 
 
+    # exps = ['rtdetr-resnet50-640_b4.yaml',]
+    # exps = ['rtdetr-resnet50-b4-50.yaml', 'rtdetr-resnet50-usaa-b4-50.yaml',]
 
     # exps = ['yolov5s.yaml', 'yolov5s_usaa_raw_dyabcalra64_ra32_rtadd_s10.yaml',
     #         'yolov8s.yaml', 'yolov8s_usaa_raw_dyabcalra64_ra32_rtadd_s10.yaml']
-    exps = os.listdir('aaa_main_exp')
-
+    # exps = os.listdir('aaa_main_exp')
+    # exps = ["yolo12s_usaa_raw_ra32_rtadd.yaml",
+    #         "yolo12s_usaa_raw_s10.yaml",
+    #         "yolo12s_usaa_raw_dyabcalra64.yaml",
+    #         "yolo12s_usaa_raw_ra32_rtadd.yaml",
+    #         "yolo12s_usaa_raw_dyabcalra64_s10.yaml",
+    #         "yolo12s_usaa_raw_ra32_rtadd_s10.yaml",
+    #         "yolo12s_usaa_raw_dyabcalra64_ra32_rtadd.yaml",
+    #         ]
+    # exps = ["yolo12s_usaa_raw_ra64_rtadd.yaml",
+    #         "yolo12s_usaa_raw_ra32_rtadd.yaml",
+    #         "yolo12s_usaa_raw_ra16_rtadd.yaml"]
+    exps = ["yolo12s_la_nwdrka.yaml",
+            "yolo12s_la_rfla_kld.yaml",
+            "yolo12s_la_rfla_wd.yaml",
+            "yolo12s_la_dotd.yaml"]
     all_stats = []
     for exp in exps:
-        model_path = f'aaa_main_exp/{exp}/weights/best.pt'
-
+        model_path = f'runs/detect/aitodv2/{exp}/weights/best.pt'
+        print(f'\nEvaluating {exp}...')
         stats = format_metrics(
             model_path=model_path,
             data_path='ultralytics/cfg/datasets/ai-todv2.yaml',

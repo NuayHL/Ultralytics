@@ -67,8 +67,10 @@ class TaskAlignedAssigner_PriorLA(TaskAlignedAssigner):
         select_type (str): ``'topk'`` (only supported strategy).
         label_type (str): ``'soft'`` (normalized-metric target, TAL/GFL) or
             ``'hard'`` (target score 1 for the positive class).
-        neg_thr (float|None): if set, an anchor must have ``metric ≥ neg_thr``
-            to be a positive (quality floor, RKA's negative threshold).
+        neg_thr (float|None): quality floor from the original RKA paper.
+            **Caveat**: in TAL the metric is on predicted (post-regression)
+            boxes, which are random early in training — a non-None value
+            often kills all positives. Prefer None in this setting.
     """
 
     def __init__(self, topk: int = 10, num_classes: int = 80,
