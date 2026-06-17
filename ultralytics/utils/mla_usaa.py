@@ -617,14 +617,16 @@ class TaskAlignedAssigner_dyab_dmetric_dscale_RefineArea(TaskAlignedAssigner_dya
     """
     def __init__(self, topk=13, num_classes=80,
                  alpha=None, beta=None, eps=1e-9,
-                 r_ref=32.0, **kwargs):
+                 r_ref=32.0, lambda_refine=1.0, **kwargs):
         super().__init__(topk=topk, num_classes=num_classes,
                          alpha=alpha, beta=beta, eps=eps, **kwargs)
         self.r_ref = r_ref
         self.r_ref_type = kwargs.get('r_ref_type', 'pow')
         self.r_ref_use_adaptive = kwargs.get('r_ref_use_adaptive', False)
+        self.lambda_refine = lambda_refine
         print(f"r_ref_type: {self.r_ref_type}")
         print(f"r_ref_use_adaptive: {self.r_ref_use_adaptive}")
+        print(f"lambda_refine: {self.lambda_refine}")
 
     def _forward(self, pd_scores, pd_bboxes, uncertainty,
                  anc_points, gt_labels, gt_bboxes, mask_gt, stride):
@@ -692,7 +694,7 @@ class TaskAlignedAssigner_dyab_dmetric_dscale_RefineArea(TaskAlignedAssigner_dya
         if self.r_ref_type == "pow":
             pos_overlaps_cal  = pos_overlaps.pow(rho)
         elif self.r_ref_type == "add_1":
-            pos_overlaps_cal = pos_overlaps + (1.0 - rho) * pos_overlaps * (1.0 - pos_overlaps)
+            pos_overlaps_cal = pos_overlaps + self.lambda_refine * (1.0 - rho) * pos_overlaps * (1.0 - pos_overlaps)
         else:
             pos_overlaps_cal  = pos_overlaps
 

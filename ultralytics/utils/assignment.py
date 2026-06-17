@@ -300,6 +300,7 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
             _kwargs['r_ref']               = cfg.get('r_ref',               32.0)
             _kwargs['r_ref_type']          = cfg.get('r_ref_type',          'pow')
             _kwargs['r_ref_use_adaptive']  = cfg.get('r_ref_use_adaptive',  False)
+            _kwargs['lambda_refine']       = cfg.get('lambda_refine',       1.0)
             assigner = TaskAlignedAssigner_dyab_dmetric_dscale_RefineArea(**_kwargs)
 
         # Prior-work tiny-object label assigners ported to one-stage
