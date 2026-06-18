@@ -15,7 +15,7 @@ import pickle
 from pathlib import Path
 
 from ultralytics import YOLO
-from area_score_val import AreaScoreValidator
+from area_score_val import get_area_score_validator
 
 
 def val_area_score(
@@ -29,10 +29,11 @@ def val_area_score(
     device=None,
 ):
     """
-    Run validation using AreaScoreValidator and return collected area-score data.
+    Run validation using the appropriate AreaScoreValidator (YOLO or RT-DETR)
+    and return collected area-score data.
 
     Args:
-        model_path: Path to the model weights (.pt file).
+        model_path: Path to the model weights (.pt file) or config (.yaml).
         data_path: Path to the dataset YAML config.
         name: Name for the validation run (save directory).
         batch: Batch size.
@@ -47,8 +48,11 @@ def val_area_score(
     """
     model = YOLO(model_path)
 
+    # Auto-select the correct validator class (DetectionValidator vs RTDETRValidator)
+    ValidatorCls = get_area_score_validator(model)
+
     metrics = model.val(
-        validator=AreaScoreValidator,
+        validator=ValidatorCls,
         data=data_path,
         name=name,
         batch=batch,
@@ -61,7 +65,7 @@ def val_area_score(
 
     # model.val() doesn't expose the validator instance directly.
     # Access it via the class-level reference set during __init__.
-    validator = AreaScoreValidator.last_instance
+    validator = ValidatorCls.last_instance
     data = validator.area_score_data
 
     # Auto-save pickle for later comparison / re-plot
@@ -90,18 +94,120 @@ def _get_area_key(area_key):
     return area_key
 
 
+def _apply_pub_style():
+    """Apply publication-quality rcParams so plots are suitable for paper figures."""
+    plt.rcParams.update({
+        "font.family": "serif",
+        "font.size": 13,
+        "axes.labelsize": 14,
+        "axes.titlesize": 14,
+        "xtick.labelsize": 12,
+        "ytick.labelsize": 12,
+        "legend.fontsize": 11,
+        "legend.framealpha": 0.6,
+        "legend.edgecolor": "0.5",
+        "figure.dpi": 150,
+        "savefig.dpi": 300,
+        "savefig.bbox": "tight",
+        "axes.grid": True,
+        "grid.alpha": 0.25,
+        "grid.linestyle": "--",
+        "lines.linewidth": 1.5,
+    })
+
+
+# Fixed axis limits — use the same range across all models for fair comparison
+X_LIM_LOG = (1, 10**4)      # for "original" / "input" (pixel areas, log scale)
+X_LIM_PCT = (0, 100)        # for "pct" (percentage, linear scale)
+Y_LIM = (-0.02, 1.02)
+
+# Object-size ranges for per-range calibration analysis (resized / input pixels)
+# Based on COCO convention with extra granularity at the small end.
+AREA_RANGES = [
+    ("verytiny",  0,     8**2),     # [0, 64)
+    ("tiny",      8**2,  16**2),    # [64, 256)
+    ("small",     16**2, 32**2),    # [256, 1024)
+    ("medium",    32**2, 96**2),    # [1024, 9216)
+    ("large",     96**2, float("inf")),  # [9216, ∞)
+]
+
+
+def compute_per_range_calibration(area_score_data, area_ranges=None, n_bins=10,
+                                  area_field="area_input"):
+    """
+    Compute ECE / MCE / precision for each object-size range.
+
+    Args:
+        area_score_data: List of dict records.
+        area_ranges: List of (name, lo, hi) tuples. Defaults to AREA_RANGES.
+        n_bins: Bins for ECE within each range.
+        area_field: Which area field to use for partitioning (default: area_input).
+
+    Returns:
+        list of dicts with keys: name, n_preds, n_tp, precision, ece, mce.
+        Plus an "all" entry at the end.
+    """
+    if area_ranges is None:
+        area_ranges = AREA_RANGES
+
+    results = []
+    for name, lo, hi in area_ranges:
+        subset = [d for d in area_score_data
+                  if d["status"] in ("TP", "FP")
+                  and lo <= d.get(area_field, 0) < hi]
+        n_preds = len(subset)
+        n_tp = sum(1 for d in subset if d["status"] == "TP")
+        precision = n_tp / n_preds if n_preds > 0 else 0.0
+
+        cal = compute_calibration(subset, n_bins=n_bins)
+        ece = cal["ece"] if cal else 0.0
+        mce = cal["mce"] if cal else 0.0
+
+        results.append({
+            "name": name, "lo": lo, "hi": hi,
+            "n_preds": n_preds, "n_tp": n_tp,
+            "precision": precision, "ece": ece, "mce": mce,
+        })
+
+    # "all" aggregate
+    all_preds = [d for d in area_score_data if d["status"] in ("TP", "FP")]
+    n_all = len(all_preds)
+    n_all_tp = sum(1 for d in all_preds if d["status"] == "TP")
+    cal_all = compute_calibration(area_score_data, n_bins=n_bins)
+    results.append({
+        "name": "all", "lo": 0, "hi": float("inf"),
+        "n_preds": n_all, "n_tp": n_all_tp,
+        "precision": n_all_tp / n_all if n_all > 0 else 0.0,
+        "ece": cal_all["ece"] if cal_all else 0.0,
+        "mce": cal_all["mce"] if cal_all else 0.0,
+    })
+
+    return results
+
+
+def print_per_range_calibration(per_range_results):
+    """Print a per-area-range calibration table."""
+    print(f"\n  --- Per-area-range breakdown (resized area) ---")
+    header = f"  {'Range':>10s}  {'Preds':>8s}  {'TP':>7s}  {'Precision':>9s}  {'ECE':>8s}  {'MCE':>8s}"
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+    for r in per_range_results:
+        print(f"  {r['name']:>10s}  {r['n_preds']:>8d}  {r['n_tp']:>7d}  "
+              f"{r['precision']:>9.4f}  {r['ece']:>8.4f}  {r['mce']:>8.4f}")
+
+
 def plot_area_vs_score(
     area_score_data,
     save_path=None,
     title=None,
-    figsize=(12, 6),
+    figsize=(6, 5),
     model_names=None,
     area_key="original",
     box_source="gt",
     show_fp_fn=True,
 ):
     """
-    Generate area vs prediction-score scatter plots.
+    Generate area vs prediction-score scatter plot (publication style).
 
     Args:
         area_score_data: List of dicts from val_area_score().
@@ -111,15 +217,15 @@ def plot_area_vs_score(
         model_names: Dict mapping class indices to class names.
         area_key: Which area metric — "original", "input", or "pct".
         box_source: "gt" for GT-box area (default), "pred" for prediction-box area.
-        show_fp_fn: Whether to include FP/FN markers on the left scatter plot.
+        show_fp_fn: Whether to include FP/FN markers.
 
     Returns:
         matplotlib Figure.
     """
+    _apply_pub_style()
     area_key = _get_area_key(area_key)
     xlabel, gt_field, pred_field = AREA_LABELS[area_key]
 
-    # Select which area field to use based on box_source
     if box_source == "pred":
         area_field = pred_field
         source_label = "Pred-box"
@@ -139,76 +245,53 @@ def plot_area_vs_score(
     fp_data = [d for d in area_score_data if d["status"] == "FP"]
     fn_data = [d for d in area_score_data if d["status"] == "FN"]
 
-    tp_areas = np.array([d[area_field] for d in tp_data])
-    tp_scores = np.array([d["pred_score"] for d in tp_data])
+    fig, ax = plt.subplots(figsize=figsize)
 
-    fig, axes = plt.subplots(1, 2, figsize=figsize)
+    xlog = area_key in ("original", "input")
 
-    # --- Left plot: scatter ---
-    ax = axes[0]
     if len(tp_data) > 0:
-        ax.scatter(tp_areas, tp_scores, alpha=0.25, s=4, c="#1f77b4", edgecolors="none",
+        tp_areas = np.array([d[area_field] for d in tp_data])
+        tp_scores = np.array([d["pred_score"] for d in tp_data])
+        ax.scatter(tp_areas, tp_scores, alpha=0.35, s=14, c="#1f77b4", edgecolors="none",
                    label=f"TP (n={len(tp_data)})")
+
     if show_fp_fn:
         if len(fp_data) > 0:
             fp_scores_arr = np.array([d["pred_score"] for d in fp_data])
             if box_source == "pred":
-                # FP predictions have real pred-box areas — plot at their actual x
                 fp_areas_arr = np.array([d[area_field] for d in fp_data])
-                ax.scatter(fp_areas_arr, fp_scores_arr, alpha=0.2, s=4, c="#d62728",
+                ax.scatter(fp_areas_arr, fp_scores_arr, alpha=0.2, s=14, c="#d62728",
                            edgecolors="none", label=f"FP (n={len(fp_data)})")
             else:
-                # GT area: draw FP at sentinel x (no GT box)
-                fp_x = 1 if area_key in ("original", "input") else 0.001
+                fp_x = 1 if xlog else 0.001
                 ax.scatter(np.full_like(fp_scores_arr, fp_x), fp_scores_arr,
-                           alpha=0.2, s=4, c="#d62728", edgecolors="none",
+                           alpha=0.2, s=14, c="#d62728", edgecolors="none",
                            label=f"FP (n={len(fp_data)})")
         if len(fn_data) > 0:
             fn_areas_arr = np.array([d[area_field] for d in fn_data])
-            ax.scatter(fn_areas_arr, np.zeros_like(fn_areas_arr), alpha=0.3, s=4,
-                       c="#ff7f0e", edgecolors="none",
+            ax.scatter(fn_areas_arr, np.zeros_like(fn_areas_arr), alpha=0.3, s=14,
+                       c="#ff7f0e",
                        label=f"FN (n={len(fn_data)})", marker="x")
 
-    xlog = area_key in ("original", "input")
+    # Fixed axis limits for fair comparison across models
     if xlog:
         ax.set_xscale("log")
-        ax.set_xlabel(f"{xlabel} (log scale)")
-    else:
+        ax.set_xlim(*X_LIM_LOG)
         ax.set_xlabel(xlabel)
-    ax.set_ylabel("Prediction Confidence Score")
-    ax.set_title(f"{title}\narea={area_key}  source={box_source}")
-    ax.legend(markerscale=3, fontsize=8)
-    ax.grid(True, alpha=0.3)
-    if xlog:
-        ax.set_xlim(xmin=0.5)
-
-    # --- Right plot: 2D histogram for TP + FP (both have pred boxes) ---
-    ax2 = axes[1]
-    if box_source == "pred":
-        # Include FP since they have real pred-box areas
-        hist_data = tp_data + fp_data
     else:
-        hist_data = tp_data
-
-    if hist_data:
-        areas_arr = np.array([d[area_field] for d in hist_data])
-        scores_arr = np.array([d["pred_score"] for d in hist_data])
-        p99 = np.percentile(areas_arr, 99) or 1
-        x_range = [0, p99] if area_key in ("original", "input") else [0, 100]
-        h = ax2.hist2d(areas_arr, scores_arr, bins=(80, 40), cmap="viridis",
-                       range=[x_range, [0, 1]])
-        plt.colorbar(h[3], ax=ax2, label="Count")
-    ax2.set_xlabel(xlabel)
-    ax2.set_ylabel("Prediction Confidence Score")
-    ax2.set_title(f"{source_label} Density (area={area_key})")
-    ax2.grid(True, alpha=0.3)
+        ax.set_xlim(*X_LIM_PCT)
+        ax.set_xlabel(xlabel)
+    ax.set_ylim(*Y_LIM)
+    ax.set_ylabel("Confidence Score")
+    ax.set_title(title)
+    ax.legend(markerscale=2, loc="best")
 
     plt.tight_layout()
 
     if save_path:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        fig.savefig(save_path)
         print(f"Plot saved to {save_path}")
 
     plt.show()
@@ -272,6 +355,10 @@ def print_summary(area_score_data, model_names=None, area_key="original", box_so
 
     # Calibration summary
     print_calibration(area_score_data)
+
+    # Per-area-range calibration
+    per_range = compute_per_range_calibration(area_score_data, area_field=area_field)
+    print_per_range_calibration(per_range)
 
 
 # ---------------------------------------------------------------------------
@@ -344,10 +431,10 @@ def plot_calibration_curve(
     save_path=None,
     n_bins=10,
     title="Calibration Curve",
-    figsize=(8, 6),
+    figsize=(6, 5),
 ):
     """
-    Plot calibration curve: confidence score vs observed precision.
+    Plot calibration curve: confidence score vs observed precision (single model).
 
     A perfectly calibrated model has precision == confidence in every bin
     (points lie on the diagonal).
@@ -362,6 +449,7 @@ def plot_calibration_curve(
     Returns:
         matplotlib Figure.
     """
+    _apply_pub_style()
     cal = compute_calibration(area_score_data, n_bins=n_bins)
     if cal is None:
         print("No prediction data for calibration.")
@@ -371,43 +459,41 @@ def plot_calibration_curve(
 
     # --- Left: calibration curve ---
     ax = axes[0]
-    ax.plot([0, 1], [0, 1], "k--", alpha=0.5, label="Perfect calibration")
-    sizes = np.maximum(cal["count"] / max(cal["count"].max(), 1) * 120, 15)
-    ax.scatter(cal["avg_conf"], cal["precision"], s=sizes, c="#1f77b4", alpha=0.8,
+    ax.plot([0, 1], [0, 1], "k--", alpha=0.5, label="Perfect")
+    sizes = np.maximum(cal["count"] / max(cal["count"].max(), 1) * 120, 20)
+    ax.scatter(cal["avg_conf"], cal["precision"], s=sizes, c="#1f77b4", alpha=0.85,
                edgecolors="k", linewidths=0.5, zorder=3)
-    ax.set_xlabel("Mean Confidence Score per Bin")
-    ax.set_ylabel("Observed Precision (TP / (TP+FP))")
-    ax.set_title(f"{title}\nECE={cal['ece']:.4f}  MCE={cal['mce']:.4f}  bins={n_bins}")
-    ax.legend(loc="upper left", fontsize=8)
-    ax.grid(True, alpha=0.3)
+    ax.set_xlabel("Confidence")
+    ax.set_ylabel("Precision")
+    ax.set_title(f"{title}  (ECE={cal['ece']:.3f})", fontsize=12)
+    ax.legend(loc="upper left")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
-    # Annotate bins with count
     for i in range(n_bins):
         if cal["count"][i] > 0:
             ax.annotate(str(cal["count"][i]), (cal["avg_conf"][i], cal["precision"][i]),
-                        textcoords="offset points", xytext=(0, 8), ha="center", fontsize=6, color="gray")
+                        textcoords="offset points", xytext=(0, 8), ha="center",
+                        fontsize=8, color="gray")
 
-    # --- Right: gap (precision - confidence) per bin ---
+    # --- Right: gap per bin ---
     ax2 = axes[1]
     gap = cal["precision"] - cal["avg_conf"]
     colors = ["#d62728" if g < 0 else "#2ca02c" for g in gap]
-    bars = ax2.bar(range(n_bins), gap, color=colors, alpha=0.8, edgecolor="k", linewidth=0.5)
-    ax2.axhline(0, color="k", linewidth=0.5)
-    ax2.set_xlabel("Confidence Bin Index")
+    ax2.bar(range(n_bins), gap, color=colors, alpha=0.8, edgecolor="k", linewidth=0.5)
+    ax2.axhline(0, color="k", linewidth=0.8)
+    ax2.set_xlabel("Confidence Bin")
     ax2.set_ylabel("Precision − Confidence")
-    ax2.set_title("Gap per Bin (negative = overconfident)")
+    ax2.set_title("Gap per Bin")
     ax2.set_xticks(range(n_bins))
-    ax2.set_xticklabels([f"{cal['bin_edges'][i]:.1f}" for i in range(n_bins)], fontsize=7)
-    ax2.grid(True, alpha=0.3, axis="y")
+    ax2.set_xticklabels([f"{cal['bin_edges'][i]:.1f}" for i in range(n_bins)], fontsize=9)
 
     plt.tight_layout()
 
     if save_path:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        fig.savefig(save_path)
         print(f"Calibration plot saved to {save_path}")
 
     plt.show()
@@ -475,21 +561,13 @@ def plot_compare_calibration(
     save_path=None,
     n_bins=10,
     title="Calibration Comparison",
-    figsize=(14, 6),
+    figsize=(12, 5),
 ):
     """
-    Overlaid calibration curves + grouped gap bars for multiple models.
-
-    Args:
-        datasets: List of (area_score_data, label) from load_pickle_data().
-        save_path: Path to save figure.
-        n_bins: Number of confidence bins.
-        title: Plot title.
-        figsize: Figure size (width, height).
-
-    Returns:
-        matplotlib Figure.
+    Overlaid calibration curves + grouped gap bars for multiple models
+    (publication style).
     """
+    _apply_pub_style()
     cals = []
     labels = []
     for data, lbl in datasets:
@@ -507,19 +585,18 @@ def plot_compare_calibration(
 
     # --- Left: overlaid calibration curves ---
     ax = axes[0]
-    ax.plot([0, 1], [0, 1], "k--", alpha=0.4, linewidth=1, label="Perfect")
+    ax.plot([0, 1], [0, 1], "k--", alpha=0.5, label="Perfect")
     for i, (cal, lbl) in enumerate(zip(cals, labels)):
         color = COLORS[i % len(COLORS)]
-        ax.plot(cal["avg_conf"], cal["precision"], "-", color=color, alpha=0.7, linewidth=1.5)
-        sizes = np.maximum(cal["count"] / max(cal["count"].max(), 1) * 100, 20)
-        ax.scatter(cal["avg_conf"], cal["precision"], s=sizes, color=color, alpha=0.85,
-                   edgecolors="k", linewidths=0.4, zorder=4,
-                   label=f"{lbl}  ECE={cal['ece']:.4f}")
-    ax.set_xlabel("Mean Confidence per Bin")
-    ax.set_ylabel("Observed Precision")
+        ax.plot(cal["bin_centers"], cal["precision"], "-", color=color, alpha=0.8, linewidth=1.5)
+        sizes = np.maximum(cal["count"] / max(cal["count"].max(), 1) * 100, 25)
+        ax.scatter(cal["bin_centers"], cal["precision"], s=sizes, color=color, alpha=0.85,
+                   edgecolors="k", linewidths=0.5, zorder=4,
+                   label=f"{lbl}  (ECE={cal['ece']:.3f})")
+    ax.set_xlabel("Confidence")
+    ax.set_ylabel("Precision")
     ax.set_title(title)
-    ax.legend(loc="upper left", fontsize=8, markerscale=0.8)
-    ax.grid(True, alpha=0.3)
+    ax.legend(loc="upper left")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
@@ -531,23 +608,22 @@ def plot_compare_calibration(
         color = COLORS[i % len(COLORS)]
         gap = cal["precision"] - cal["avg_conf"]
         x = np.arange(n_bins) + (i - (n_models - 1) / 2) * bar_width
-        ax2.bar(x, gap, width=bar_width, color=color, alpha=0.8, edgecolor="k",
-                linewidth=0.3, label=lbl)
+        ax2.bar(x, gap, width=bar_width, color=color, alpha=0.85, edgecolor="k",
+                linewidth=0.5, label=lbl)
     ax2.axhline(0, color="k", linewidth=0.8)
     ax2.set_xlabel("Confidence Bin")
     ax2.set_ylabel("Precision − Confidence")
-    ax2.set_title("Gap per Bin (negative = overconfident)")
+    ax2.set_title("Gap per Bin")
     ax2.set_xticks(range(n_bins))
-    ax2.set_xticklabels([f"{bin_edges[i]:.1f}" for i in range(n_bins)], fontsize=7)
-    ax2.legend(fontsize=8)
-    ax2.grid(True, alpha=0.3, axis="y")
+    ax2.set_xticklabels([f"{bin_edges[i]:.1f}" for i in range(n_bins)], fontsize=10)
+    ax2.legend()
 
     plt.tight_layout()
 
     if save_path:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        fig.savefig(save_path)
         print(f"Calibration comparison saved to {save_path}")
 
     plt.show()
@@ -560,118 +636,59 @@ def plot_compare_area_vs_score(
     area_key="original",
     box_source="gt",
     title=None,
-    figsize=None,
+    figsize=(6, 5),
+    show_fp_fn=False,
 ):
     """
-    Overlaid area-vs-score scatter + aligned 2D histograms for multiple models.
-
-    Args:
-        datasets: List of (area_score_data, label).
-        save_path: Path to save figure.
-        area_key: "original", "input", or "pct".
-        box_source: "gt" or "pred".
-        title: Plot title.
-        figsize: Figure size.
-
-    Returns:
-        matplotlib Figure.
+    Overlaid area-vs-score scatter for comparing multiple models.
+    Publication-ready single-panel figure.
     """
+    _apply_pub_style()
     area_key = _get_area_key(area_key)
     xlabel, gt_field, pred_field = AREA_LABELS[area_key]
     area_field = pred_field if box_source == "pred" else gt_field
     source_label = "pred-box" if box_source == "pred" else "GT-box"
 
     if title is None:
-        title = f"Area-Score Comparison  ({source_label}, area={area_key})"
-
-    n_models = len(datasets)
-    if figsize is None:
-        figsize = (12, 4 + 3 * n_models)
-
-    # Compute shared axis limits from all data
-    all_areas = []
-    all_scores = []
-    for data, _ in datasets:
-        preds = [d for d in data if d["status"] in ("TP", "FP") and d[area_field] > 0]
-        if preds:
-            all_areas.extend([d[area_field] for d in preds])
-            all_scores.extend([d["pred_score"] for d in preds])
-    all_areas = np.array(all_areas) if all_areas else np.array([0, 1])
-    all_scores = np.array(all_scores) if all_scores else np.array([0, 1])
+        title = f"Area-Score Comparison  ({source_label})"
 
     xlog = area_key in ("original", "input")
-    if xlog:
-        x_lim = (max(all_areas[all_areas > 0].min() * 0.5 if (all_areas > 0).any() else 0.5, 0.5),
-                 all_areas.max() * 1.1 or 1)
-    else:
-        x_lim = (0, max(all_areas.max() * 1.05, 1))
-    y_lim = (-0.02, 1.02)
 
-    # Layout: left = scatter overlay, right = small-multiple 2D histograms
-    fig = plt.figure(figsize=figsize)
-    gs = fig.add_gridspec(n_models + 1, 2, height_ratios=[1] * n_models + [0.06],
-                          hspace=0.3, wspace=0.25)
-    ax_scatter = fig.add_subplot(gs[:-1, 0])
+    fig, ax = plt.subplots(figsize=figsize)
 
-    # --- Left: overlaid scatter ---
     for i, (data, lbl) in enumerate(datasets):
         color = COLORS[i % len(COLORS)]
         tp_data = [d for d in data if d["status"] == "TP"]
         if tp_data:
             a = np.array([d[area_field] for d in tp_data])
             s = np.array([d["pred_score"] for d in tp_data])
-            ax_scatter.scatter(a, s, alpha=0.2, s=4, color=color, edgecolors="none",
-                               label=f"{lbl} TP (n={len(tp_data)})")
-        if box_source == "pred":
-            fp_data = [d for d in data if d["status"] == "FP"]
-            if fp_data:
+            ax.scatter(a, s, alpha=0.35, s=6, color=color, edgecolors="none",
+                       label=f"{lbl} TP (n={len(tp_data)})")
+        if show_fp_fn:
+            if len([d for d in data if d["status"] == "FP"]) > 0:
+                fp_data = [d for d in data if d["status"] == "FP"]
                 a = np.array([d[area_field] for d in fp_data])
                 s = np.array([d["pred_score"] for d in fp_data])
-                ax_scatter.scatter(a, s, alpha=0.1, s=4, color=color, edgecolors="none",
-                                   marker="x", label=f"{lbl} FP (n={len(fp_data)})")
+                ax.scatter(a, s, alpha=0.2, s=14, color=color,
+                           marker="x", label=f"{lbl} FP (n={len(fp_data)})")
+
     if xlog:
-        ax_scatter.set_xscale("log")
-        ax_scatter.set_xlabel(f"{xlabel} (log scale)")
+        ax.set_xscale("log")
+        ax.set_xlim(*X_LIM_LOG)
     else:
-        ax_scatter.set_xlabel(xlabel)
-    ax_scatter.set_ylabel("Prediction Confidence Score")
-    ax_scatter.set_title(title)
-    ax_scatter.set_xlim(x_lim)
-    ax_scatter.set_ylim(y_lim)
-    ax_scatter.legend(markerscale=3, fontsize=7)
-    ax_scatter.grid(True, alpha=0.3)
+        ax.set_xlim(*X_LIM_PCT)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Confidence Score")
+    ax.set_title(title)
+    ax.set_ylim(*Y_LIM)
+    ax.legend(markerscale=2, loc="upper left")
 
-    # --- Right: small-multiple 2D histograms ---
-    for i, (data, lbl) in enumerate(datasets):
-        ax_h = fig.add_subplot(gs[i, 1])
-        hist_data = [d for d in data if d["status"] in ("TP", "FP") and d[area_field] > 0]
-        if hist_data:
-            a = np.array([d[area_field] for d in hist_data])
-            s = np.array([d["pred_score"] for d in hist_data])
-            h = ax_h.hist2d(a, s, bins=(60, 30), cmap="plasma",
-                            range=[list(x_lim), list(y_lim)])
-        ax_h.set_xlabel(xlabel, fontsize=8)
-        ax_h.set_ylabel("Score", fontsize=8)
-        ax_h.set_title(f"{lbl}", fontsize=9)
-        ax_h.set_xlim(x_lim)
-        ax_h.set_ylim(y_lim)
-        if xlog:
-            ax_h.set_xscale("log")
-        ax_h.grid(True, alpha=0.2)
-
-    # Shared colorbar
-    cbar_ax = fig.add_subplot(gs[-1, 1])
-    # Use a dummy histogram to get colorbar
-    dummy_ax = fig.add_subplot(gs[0, 1])
-    h_dummy = dummy_ax.hist2d([0], [0], bins=(1, 1), cmap="plasma", range=[[0, 1], [0, 1]])
-    dummy_ax.remove()
-    cbar = plt.colorbar(h_dummy[3], cax=cbar_ax, orientation="horizontal", label="Count")
-    cbar_ax.set_xlabel("Count")
+    plt.tight_layout()
 
     if save_path:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        fig.savefig(save_path)
         print(f"Area-score comparison saved to {save_path}")
 
     plt.show()
@@ -704,13 +721,32 @@ def print_compare_summary(datasets, area_key="original", box_source="gt", n_bins
 
     # Per-model calibration detail
     for data, lbl in datasets:
+        print(f"\n{'─' * 60}")
+        print(f"  Model: {lbl}")
+        print(f"{'─' * 60}")
         print_calibration(data, n_bins=n_bins)
+        per_range = compute_per_range_calibration(data, area_field=area_field, n_bins=n_bins)
+        print_per_range_calibration(per_range)
 
     print("=" * 70)
 
 
 if __name__ == "__main__":
     import argparse
+    import sys
+    from contextlib import redirect_stdout
+
+    class _Tee:
+        """Write to both a file and the original stdout."""
+        def __init__(self, file, stdout):
+            self.file = file
+            self.stdout = stdout
+        def write(self, data):
+            self.file.write(data)
+            self.stdout.write(data)
+        def flush(self):
+            self.file.flush()
+            self.stdout.flush()
 
     parser = argparse.ArgumentParser(description="GT Area vs Prediction Score Analysis")
 
@@ -738,6 +774,8 @@ if __name__ == "__main__":
                         choices=["gt", "pred"],
                         help="gt = GT-box area on x-axis (default), pred = prediction-box area")
     parser.add_argument("--n-bins", type=int, default=10, help="Number of confidence bins for calibration")
+    parser.add_argument("--show-fp-fn", action="store_true", default=False,
+                        help="Show FP/FN markers on scatter plots (default: TP only)")
     parser.add_argument("--save", type=str, default=None, help="Save plot to path (default: auto)")
 
     opt = parser.parse_args()
@@ -750,20 +788,30 @@ if __name__ == "__main__":
     if opt.load:
         datasets = load_pickle_data(opt.load, labels=opt.labels)
 
-        print_compare_summary(datasets, area_key=area_slug, box_source=opt.box_source,
-                              n_bins=opt.n_bins)
+        # Output dir
+        if opt.save:
+            result_dir = Path(opt.save).parent
+        else:
+            result_dir = Path("runs/detect") / opt.name
+        result_dir.mkdir(parents=True, exist_ok=True)
 
-        # Output dir: use the directory of the first pickle
-        result_dir = Path(opt.load[0]).parent
+        # Save text report + console output
+        report_path = result_dir / "report.txt"
+        with open(report_path, "w", encoding="utf-8") as rf:
+            tee = _Tee(rf, sys.stdout)
+            with redirect_stdout(tee):
+                print_compare_summary(datasets, area_key=area_slug, box_source=opt.box_source,
+                                      n_bins=opt.n_bins)
+        print(f"Report saved to {report_path}")
 
-        # Calibration comparison
-        cal_path = opt.save or str(result_dir / f"compare_calibration_{area_slug}.png")
+        # Plots
+        cal_path = str(result_dir / f"compare_calibration_{area_slug}.png")
         plot_compare_calibration(datasets, save_path=cal_path, n_bins=opt.n_bins)
 
-        # Area-score comparison
         area_path = str(result_dir / f"compare_area_vs_score_{opt.box_source}_{area_slug}.png")
         plot_compare_area_vs_score(datasets, save_path=area_path,
-                                   area_key=area_slug, box_source=opt.box_source)
+                                   area_key=area_slug, box_source=opt.box_source,
+                                   show_fp_fn=opt.show_fp_fn)
 
     # =====================================================================
     #  Single val mode (original behaviour)
@@ -783,12 +831,18 @@ if __name__ == "__main__":
             device=opt.device,
         )
 
-        print_summary(data, model_names=getattr(validator, "names", None),
-                      area_key=area_slug, box_source=opt.box_source)
-
         result_dir = Path(validator.save_dir)
 
-        # Area-vs-score scatter plot
+        # Save text report + console output
+        report_path = result_dir / "report.txt"
+        with open(report_path, "w", encoding="utf-8") as rf:
+            tee = _Tee(rf, sys.stdout)
+            with redirect_stdout(tee):
+                print_summary(data, model_names=getattr(validator, "names", None),
+                              area_key=area_slug, box_source=opt.box_source)
+        print(f"Report saved to {report_path}")
+
+        # Plots
         save_path = opt.save or str(result_dir / f"area_vs_score_{opt.box_source}_{area_slug}.png")
         plot_area_vs_score(
             data,
@@ -796,6 +850,7 @@ if __name__ == "__main__":
             model_names=getattr(validator, "names", None),
             area_key=area_slug,
             box_source=opt.box_source,
+            show_fp_fn=True,
         )
 
         # Calibration plot
