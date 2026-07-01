@@ -34,7 +34,9 @@ from ultralytics.utils.mla_sub import (TaskAlignedAssigner_Subnet_Scale,
 from ultralytics.utils.mla_usaa import (TaskAlignedAssigner_dyab_dmetric_dscale,
                                         TaskAlignedAssigner_dyab_dmetric_dscale_RefineArea)
 
-from ultralytics.utils.mla_priorla import TaskAlignedAssigner_PriorLA
+from ultralytics.utils.mla_priorla import (TaskAlignedAssigner_PriorLA,
+                                           RankingAssigner_OneStage,
+                                           HieAssigner_OneStage)
 from ultralytics.utils.mla_scale import TaskAlignedAssigner_dScale
 from ultralytics.utils.tal import TaskAlignedAssigner
 from ultralytics.utils.mla_basic import FCOSAssigner, SimOTAAssigner
@@ -59,7 +61,9 @@ ASSIGN_USE_STRIDE = (TaskAlignedAssigner_Scale,
                      TaskAlignedAssigner_ab_uncertainty_joint,
                      TaskAlignedAssigner_ab_uncertainty_simd_joint,
                      TaskAlignedAssigner_dyab_dmetric_dscale,
-                     TaskAlignedAssigner_dyab_dmetric_dscale_RefineArea)
+                     TaskAlignedAssigner_dyab_dmetric_dscale_RefineArea,
+                     RankingAssigner_OneStage,
+                     HieAssigner_OneStage)
 
 # bce1 is a mistake so did not add in it
 ASSIGN_USE_LOGIST = (TaskAlignedAssigner_BCE,
@@ -314,6 +318,25 @@ def get_task_aligned_assigner(cfg: dict, nc=80, **kwargs):
             _kwargs['label_type']    = cfg.get("label_type",    "hard")
             _kwargs['neg_thr']       = cfg.get("neg_thr",       None)
             assigner = TaskAlignedAssigner_PriorLA(**_kwargs)
+
+        # Faithful static-prior ports (assign on stride-sized cell priors,
+        # metric-only ranking, no in-GT gate — exactly what the two-stage
+        # methods do on anchors).
+        elif assigner_type == "RankingAssigner_OneStage":   # NWD-RKA (RKA)
+            _kwargs['metric_type']   = cfg.get("metric_type",   "NWD")
+            _kwargs['metric_kwargs'] = cfg.get("metric_kwargs", {})
+            _kwargs['label_type']    = cfg.get("label_type",    "hard")
+            _kwargs['rf_scale']      = cfg.get("rf_scale",      1.0)
+            assigner = RankingAssigner_OneStage(**_kwargs)
+        elif assigner_type == "HieAssigner_OneStage":       # RFLA (HLA)
+            _kwargs['metric_type']   = cfg.get("metric_type",   "KLD")
+            _kwargs['metric_kwargs'] = cfg.get("metric_kwargs", {})
+            _kwargs['label_type']    = cfg.get("label_type",    "hard")
+            _kwargs['rf_scale']      = cfg.get("rf_scale",      1.0)
+            _kwargs['topk1']         = cfg.get("topk1",         3)
+            _kwargs['topk2']         = cfg.get("topk2",         1)
+            _kwargs['ratio']         = cfg.get("ratio",         0.9)
+            assigner = HieAssigner_OneStage(**_kwargs)
 
         # Record assigner
         elif assigner_type == "TaskAlignedAssigner_Record":

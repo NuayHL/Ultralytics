@@ -1,22 +1,21 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-# DotD — center-distance metric only, top-k, HARD label
-# Faithful one-stage reproduction via TaskAlignedAssigner_PriorLA.
-# Three decoupled axes: align_type (cls×reg combination),
-#                       select_type (positive selection),
-#                       label_type (soft vs hard supervision).
+# NWD-RKA (RKA core) as a metric-only ranking inside YOLO's native
+# (predicted-box, dynamic) assignment, per-GT top-k=10, no cls term.
+# A one-stage reading of RKA (original RKA ranks static RPN anchors).
+# SOFT label: GFL-style per-GT normalized-metric target.
 
 # Assigner Para
 assigner_type: 'TaskAlignedAssigner_PriorLA'
 topk: 10
-alpha: 0.5   # used only when align_type=tal
-beta: 6.0    # used only when align_type=tal
-metric_type: DotD
+alpha: 0.5
+beta: 6.0
+metric_type: NWD
 metric_kwargs:
-  dotd_c: 12.0
+  nwd_c: 12.7
 align_type: metric
 select_type: topk
-label_type: hard
+label_type: soft
 neg_thr: null
 
 # Parameters

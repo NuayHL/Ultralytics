@@ -1,23 +1,20 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-# SimD — SimD metric only, top-k, HARD label
-# Faithful one-stage reproduction via TaskAlignedAssigner_PriorLA.
-# Three decoupled axes: align_type (cls×reg combination),
-#                       select_type (positive selection),
-#                       label_type (soft vs hard supervision).
+# DotD metric-only ranking inside YOLO's native (predicted-box) assignment,
+# top-k=10. exp(-||c1-c2||/C), C=12.7 (AI-TOD).
+# SOFT label: GFL-style per-GT normalized-metric target.
 
 # Assigner Para
 assigner_type: 'TaskAlignedAssigner_PriorLA'
 topk: 10
-alpha: 0.5   # used only when align_type=tal
-beta: 6.0    # used only when align_type=tal
-metric_type: SimD
+alpha: 0.5
+beta: 6.0
+metric_type: DotD
 metric_kwargs:
-  sim_x: 6.13
-  sim_y: 4.59
+  dotd_c: 12.7
 align_type: metric
 select_type: topk
-label_type: hard
+label_type: soft
 neg_thr: null
 
 # Parameters

@@ -1,22 +1,21 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-# RFLA-WD — Wasserstein metric only, top-k, HARD label
-# Faithful one-stage reproduction via TaskAlignedAssigner_PriorLA.
-# Three decoupled axes: align_type (cls×reg combination),
-#                       select_type (positive selection),
-#                       label_type (soft vs hard supervision).
+# RFLA — faithful one-stage HieAssigner (HLA): GT->static cell priors,
+# KLD affinity, hierarchical two-stage top-k=[3,1] with stage-2 prior
+# rescale ratio=0.9. mmdet ref: HieAssigner(assign_metric='kl', topk=[3,1], ratio=0.9).
+# SOFT label (opt-in extension): GFL-style per-GT normalized-metric target.
+# Faithful static-prior port; only the stride-sized cell prior is the
+# one-stage stand-in for the anchor/receptive-field prior.
 
 # Assigner Para
-assigner_type: 'TaskAlignedAssigner_PriorLA'
-topk: 10
-alpha: 0.5   # used only when align_type=tal
-beta: 6.0    # used only when align_type=tal
-metric_type: WD
+assigner_type: 'HieAssigner_OneStage'
+metric_type: KLD
 metric_kwargs: {}
-align_type: metric
-select_type: topk
-label_type: hard
-neg_thr: null
+topk1: 3
+topk2: 1
+ratio: 0.9
+label_type: soft
+rf_scale: 1.0
 
 # Parameters
 nc: 80 # number of classes
