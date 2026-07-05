@@ -553,6 +553,23 @@ class RTDETRDetectionLoss_USAA(RTDETRDetectionLoss):
         self.use_soft_label_cal = use_soft_label_cal
         self.r_ref_cal = r_ref_cal
         self.cal_type = cal_type
+        # (H, W) of the current batch in px, refreshed each forward. All boxes
+        # in this pipeline are NORMALIZED xywh, while r_ref_* are pixel sizes,
+        # so ρ must be computed on the denormalized area.
+        self._img_hw: tuple[float, float] = (640.0, 640.0)
+
+    def forward(self, preds, batch, dn_bboxes=None, dn_scores=None, dn_meta=None):
+        """Stash the batch image size for pixel-area ρ, then defer to parent.
+
+        This is the single upstream of all three loss branches (main / aux /
+        dn), so the size set here covers every _calibrate_soft_label call and
+        every matcher invocation of this forward.
+        """
+        imgsz = batch.get("imgsz", None)
+        if imgsz is not None:
+            self._img_hw = (float(imgsz[0]), float(imgsz[1]))
+        self.matcher.img_hw = self._img_hw
+        return super().forward(preds, batch, dn_bboxes=dn_bboxes, dn_scores=dn_scores, dn_meta=dn_meta)
 
     # ─────────────────────────────────────────────────────────────────────
     # Soft-label calibration
@@ -575,8 +592,10 @@ class RTDETRDetectionLoss_USAA(RTDETRDetectionLoss):
         """
         if not self.use_soft_label_cal:
             return iou
-        gt_w = gt_bboxes_matched[:, 2]
-        gt_h = gt_bboxes_matched[:, 3]
+        # Denormalize to pixels: boxes are normalized xywh, r_ref_cal is px.
+        img_h, img_w = self._img_hw
+        gt_w = gt_bboxes_matched[:, 2] * img_w
+        gt_h = gt_bboxes_matched[:, 3] * img_h
         r_sq = (gt_w * gt_h).clamp(min=1.0)
 
         # ρ_i = r_i² / (r_i² + r_ref_cal²)   — same as RefineArea in mla_usaa.py

@@ -202,8 +202,8 @@ class RTDETRValidator(DetectionValidator):
         stem = path.stem
         image_id = int(stem) if stem.isnumeric() else stem
         box = predn["bboxes"].clone()
-        box[..., [0, 2]] *= pbatch["ori_shape"][1] / self.args.imgsz  # native-space pred
-        box[..., [1, 3]] *= pbatch["ori_shape"][0] / self.args.imgsz  # native-space pred
+        # box[..., [0, 2]] *= pbatch["ori_shape"][1] / self.args.imgsz  # native-space pred
+        # box[..., [1, 3]] *= pbatch["ori_shape"][0] / self.args.imgsz  # native-space pred
         box = ops.xyxy2xywh(box)  # xywh
         box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
         for b, s, c in zip(box.tolist(), predn["conf"].tolist(), predn["cls"].tolist()):

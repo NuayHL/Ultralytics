@@ -805,6 +805,7 @@ class RTDETRDetectionModel(DetectionModel):
             "bboxes": batch["bboxes"].to(device=img.device),
             "batch_idx": batch_idx.to(img.device, dtype=torch.long).view(-1),
             "gt_groups": gt_groups,
+            "imgsz": img.shape[2:],  # (H, W) in px — bboxes are normalized; USAA needs this for the pixel-area ρ
         }
 
         if preds is None:

@@ -56,6 +56,11 @@ class HungarianMatcher_ScaleAware(HungarianMatcher):
         self.r_ref_ab = r_ref_ab
         self.cls_reduction = cls_reduction
         self.spatial_boost = spatial_boost
+        # (H, W) of the current batch in px, set per forward by
+        # RTDETRDetectionLoss_USAA. gt_bboxes arrive NORMALIZED (xywh ∈ [0,1]),
+        # so ρ must be computed on the denormalized pixel area — otherwise
+        # area ≤ 1 and ρ collapses to the same constant for every GT.
+        self.img_hw: tuple[float, float] | None = None
 
     # ─────────────────────────────────────────────────────────────────────
     # Per-GT cost_gain modulation
@@ -77,8 +82,10 @@ class HungarianMatcher_ScaleAware(HungarianMatcher):
             spatial_factor: (1, num_gts) — multiplier on cost_gain["bbox"]
                                           and cost_gain["giou"].
         """
-        gt_w = gt_bboxes[:, 2]
-        gt_h = gt_bboxes[:, 3]
+        # Denormalize to pixels: gt_bboxes are normalized xywh, r_ref_ab is px.
+        img_h, img_w = self.img_hw if self.img_hw is not None else (640.0, 640.0)
+        gt_w = gt_bboxes[:, 2] * img_w
+        gt_h = gt_bboxes[:, 3] * img_h
         r_sq = (gt_w * gt_h).clamp(min=1.0)
 
         # ρ_i = r_i² / (r_i² + r_ref_ab²)   — same as DyabCalibrationAware
