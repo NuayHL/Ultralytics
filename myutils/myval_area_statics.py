@@ -131,6 +131,44 @@ AREA_RANGES = [
     ("large",     96**2, float("inf")),  # [9216, ∞)
 ]
 
+# AITOD-style object-size ranges (side-length based, squared for area)
+AREA_RANGES_AITOD = [
+    ("0-8²",      0,     8**2),     # [0, 64)
+    ("8²-16²",    8**2,  16**2),    # [64, 256)
+    ("16²-32²",   16**2, 32**2),    # [256, 1024)
+    ("32²+",      32**2, float("inf")),  # [1024, ∞)
+]
+
+
+def generate_geometric_ranges(start=10, base=2, n_bins=None, max_area=640**2):
+    """
+    Generate area ranges with geometrically increasing side-length thresholds.
+
+    Side-length edges:  start,  start*base,  start*base²,  ...
+    Area thresholds:    edge²
+
+    Args:
+        start:    First side-length edge in pixels (default 10).
+        base:     Geometric ratio between successive side lengths (default 2).
+        n_bins:   Number of bins. If None, auto-derive from max_area.
+        max_area: Upper bound (pixels²) for the last edge.
+
+    Returns:
+        List of (label, lo_area, hi_area) tuples.
+    """
+    edges = [start]
+    while edges[-1] ** 2 < max_area:
+        edges.append(edges[-1] * base)
+    if n_bins is not None:
+        edges = edges[:n_bins + 1]
+
+    ranges = []
+    for i in range(len(edges) - 1):
+        lo_side = edges[i]
+        hi_side = edges[i + 1]
+        ranges.append((f"{lo_side:.0f}-{hi_side:.0f}", lo_side ** 2, hi_side ** 2))
+    return ranges
+
 
 def compute_per_range_calibration(area_score_data, area_ranges=None, n_bins=10,
                                   area_field="area_input"):
@@ -298,6 +336,30 @@ def plot_area_vs_score(
     return fig
 
 
+def _print_tp_by_size_ranges(tp_areas, tp_scores, area_ranges, title, area_key="original"):
+    """
+    Print TP count / mean score / median score broken down by area ranges.
+
+    Args:
+        tp_areas:  np.array of TP box areas.
+        tp_scores: np.array of TP confidence scores.
+        area_ranges: List of (label, lo, hi) tuples (area thresholds).
+        title: Section title string.
+        area_key: "original"/"input" or "pct" — if "pct", lo/hi are percentages
+                  and the label "px²" is replaced by "%".
+    """
+    unit = "%" if area_key == "pct" else "px²"
+    print(f"\n  --- {title} ---")
+    for label, lo, hi in area_ranges:
+        mask = (tp_areas >= lo) & (tp_areas < hi)
+        n = mask.sum()
+        if n > 0:
+            print(f"  {label} {unit}: {n:6d}  mean score={tp_scores[mask].mean():.4f}  "
+                  f"median score={np.median(tp_scores[mask]):.4f}")
+        else:
+            print(f"  {label} {unit}: {n:6d}")
+
+
 def print_summary(area_score_data, model_names=None, area_key="original", box_source="gt"):
     """Print summary statistics from area-score data.
 
@@ -341,6 +403,15 @@ def print_summary(area_score_data, model_names=None, area_key="original", box_so
                           f"median score={np.median(tp_scores[mask]):.4f}")
                 else:
                     print(f"  {label}: {n:6d}")
+
+            # AITOD-style breakdown: 0-8², 8²-16², 16²-32², 32²+
+            _print_tp_by_size_ranges(tp_areas, tp_scores, AREA_RANGES_AITOD,
+                                     "TP by object size (AITOD definition)", area_key)
+
+            # Geometric progression breakdown: edges at 10×2ⁿ pixels side-length
+            geo_ranges = generate_geometric_ranges(start=10, base=2, max_area=640**2)
+            _print_tp_by_size_ranges(tp_areas, tp_scores, geo_ranges,
+                                     "TP by object size (geometric 10×2ⁿ side-length edges)", area_key)
 
         if len(tp_areas) > 10:
             print(f"\n  --- Mean score by area percentile (TP only) ---")
@@ -413,7 +484,12 @@ def compute_calibration(area_score_data, n_bins=10):
 
     total = len(preds)
     ece = float(np.sum(count / total * np.abs(precision - avg_conf)))
-    mce = float(np.max(np.abs(precision - avg_conf)))
+
+    # MCE: only consider bins that actually contain predictions.
+    # Empty bins have precision=0, avg_conf=bin_center (e.g. 0.95),
+    # which would produce a spurious gap if included.
+    non_empty = count > 0
+    mce = float(np.max(np.abs(precision[non_empty] - avg_conf[non_empty]))) if non_empty.any() else 0.0
 
     return {
         "bin_edges": bin_edges,
@@ -724,6 +800,34 @@ def print_compare_summary(datasets, area_key="original", box_source="gt", n_bins
         print(f"\n{'─' * 60}")
         print(f"  Model: {lbl}")
         print(f"{'─' * 60}")
+
+        # TP-by-size breakdowns
+        tp_data = [d for d in data if d["status"] == "TP"]
+        if tp_data:
+            tp_areas = np.array([d[area_field] for d in tp_data])
+            tp_scores = np.array([d["pred_score"] for d in tp_data])
+
+            # COCO
+            small_mask = tp_areas < 32 ** 2
+            medium_mask = (tp_areas >= 32 ** 2) & (tp_areas < 96 ** 2)
+            large_mask = tp_areas >= 96 ** 2
+            print(f"\n  --- TP by object size (COCO definition, in pixels) ---")
+            for label, mask in [("Small (<32²)", small_mask), ("Medium (32²-96²)", medium_mask), ("Large (>96²)", large_mask)]:
+                n = mask.sum()
+                if n > 0:
+                    print(f"  {label}: {n:6d}  mean score={tp_scores[mask].mean():.4f}  "
+                          f"median score={np.median(tp_scores[mask]):.4f}")
+                else:
+                    print(f"  {label}: {n:6d}")
+
+            # AITOD
+            _print_tp_by_size_ranges(tp_areas, tp_scores, AREA_RANGES_AITOD,
+                                     "TP by object size (AITOD definition)", area_key)
+            # Geometric
+            geo_ranges = generate_geometric_ranges(start=10, base=2, max_area=640**2)
+            _print_tp_by_size_ranges(tp_areas, tp_scores, geo_ranges,
+                                     "TP by object size (geometric 10×2ⁿ side-length edges)", area_key)
+
         print_calibration(data, n_bins=n_bins)
         per_range = compute_per_range_calibration(data, area_field=area_field, n_bins=n_bins)
         print_per_range_calibration(per_range)
